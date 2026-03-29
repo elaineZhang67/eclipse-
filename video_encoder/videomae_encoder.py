@@ -19,6 +19,7 @@ class VideoMAEActionModel:
             self.model = self.model.to(self.device)
         self.model.eval()
         self.expected_num_frames = int(getattr(self.model.config, "num_frames", 16))
+        self.model_dtype = next(self.model.parameters()).dtype
 
     def _match_num_frames(self, clip_rgb_frames):
         if not clip_rgb_frames:
@@ -45,7 +46,14 @@ class VideoMAEActionModel:
         # clip_rgb_frames: list of numpy RGB images [224,224,3]
         clip_rgb_frames = self._match_num_frames(clip_rgb_frames)
         inputs = self.processor(clip_rgb_frames, return_tensors="pt")
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        inputs = {
+            key: (
+                value.to(device=self.device, dtype=self.model_dtype)
+                if torch.is_tensor(value) and value.is_floating_point()
+                else value.to(device=self.device)
+            )
+            for key, value in inputs.items()
+        }
         out = self.model(**inputs)
         probs = torch.softmax(out.logits, dim=-1)[0]
         idx = int(torch.argmax(probs).item())

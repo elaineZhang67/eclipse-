@@ -14,13 +14,24 @@ DEFAULT_TEXT_MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
 DEFAULT_VL_MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
 
 
-def _move_to_device(batch, device):
+def _move_to_device(batch, device, float_dtype=None):
+    if hasattr(batch, "items"):
+        return {
+            key: (
+                value.to(device=device, dtype=float_dtype)
+                if hasattr(value, "to") and torch.is_tensor(value) and value.is_floating_point() and float_dtype is not None
+                else value.to(device=device)
+                if hasattr(value, "to")
+                else value
+            )
+            for key, value in batch.items()
+        }
     if hasattr(batch, "to"):
-        return batch.to(device)
-    return {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in batch.items()
-    }
+        kwargs = {"device": device}
+        if float_dtype is not None and torch.is_tensor(batch) and batch.is_floating_point():
+            kwargs["dtype"] = float_dtype
+        return batch.to(**kwargs)
+    return batch
 
 
 def _select_model_id(model_id, backend):
@@ -104,10 +115,18 @@ class QwenSummarizer:
         if self.device.type != "cuda":
             self.model = self.model.to(self.device)
         self.model.eval()
+        self.model_dtype = next(self.model.parameters()).dtype
 
     def _generate(self, prompt, max_new_tokens):
         inputs = self.tokenizer(prompt, return_tensors="pt")
-        inputs = {key: value.to(self.input_device) for key, value in inputs.items()}
+        inputs = {
+            key: (
+                value.to(device=self.input_device, dtype=self.model_dtype)
+                if torch.is_tensor(value) and value.is_floating_point()
+                else value.to(device=self.input_device)
+            )
+            for key, value in inputs.items()
+        }
         prompt_len = inputs["input_ids"].shape[-1]
 
         with torch.inference_mode():
@@ -257,6 +276,7 @@ class QwenVLSummarizer:
         self.input_device = self.device
         self.processor = AutoProcessor.from_pretrained(model_id)
         self.model = _load_vl_model(model_id, self.device)
+        self.model_dtype = next(self.model.parameters()).dtype
 
     def _generate(self, prompt, image_arrays=None, max_new_tokens=220):
         image_arrays = list(image_arrays or [])
@@ -281,7 +301,7 @@ class QwenVLSummarizer:
                 return_tensors="pt",
             )
             inputs.pop("token_type_ids", None)
-            inputs = _move_to_device(inputs, self.input_device)
+            inputs = _move_to_device(inputs, self.input_device, float_dtype=self.model_dtype)
 
             with torch.inference_mode():
                 generated = self.model.generate(
