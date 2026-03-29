@@ -1,0 +1,257 @@
+import json
+import tempfile
+from pathlib import Path
+
+import cv2
+import torch
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+
+from runtime.device import model_load_kwargs, resolve_device
+
+
+DEFAULT_TEXT_MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
+DEFAULT_VL_MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
+
+
+def _move_to_device(batch, device):
+    if hasattr(batch, "to"):
+        return batch.to(device)
+    return {
+        key: value.to(device) if hasattr(value, "to") else value
+        for key, value in batch.items()
+    }
+
+
+def _select_model_id(model_id, backend):
+    if model_id:
+        return model_id
+    if backend == "vl":
+        return DEFAULT_VL_MODEL_ID
+    return DEFAULT_TEXT_MODEL_ID
+
+
+def _load_vl_model(model_id, device):
+    try:
+        from transformers import Qwen3VLForConditionalGeneration
+
+        model_cls = Qwen3VLForConditionalGeneration
+    except ImportError:
+        try:
+            from transformers import AutoModelForImageTextToText
+        except ImportError as exc:
+            raise RuntimeError(
+                "Qwen3-VL requires a newer transformers installation with "
+                "Qwen3VLForConditionalGeneration or AutoModelForImageTextToText."
+            ) from exc
+        model_cls = AutoModelForImageTextToText
+
+    model = model_cls.from_pretrained(model_id, **model_load_kwargs(device))
+    if device.type != "cuda":
+        model = model.to(device)
+    model.eval()
+    return model
+
+
+class QwenSummarizer:
+    uses_visual_inputs = False
+
+    def __init__(self, model_id=DEFAULT_TEXT_MODEL_ID, device="auto"):
+        self.model_id = model_id
+        self.device = resolve_device(device)
+        self.input_device = self.device
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            **model_load_kwargs(self.device),
+        )
+        if self.device.type != "cuda":
+            self.model = self.model.to(self.device)
+        self.model.eval()
+
+    def _generate(self, prompt, max_new_tokens):
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        inputs = {key: value.to(self.input_device) for key, value in inputs.items()}
+        prompt_len = inputs["input_ids"].shape[-1]
+
+        with torch.inference_mode():
+            out = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+            )
+
+        generated_ids = out[0][prompt_len:]
+        return self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+
+    def build_track_prompt(self, track_id, segments, track_metadata=None):
+        payload = {
+            "track_id": track_id,
+            "segments": segments,
+            "metadata": track_metadata or {},
+        }
+        payload_txt = json.dumps(payload, indent=2)
+        return (
+            "You are a surveillance video analyst.\n"
+            "Summarize the person track from structured evidence only.\n"
+            "Focus on: when the person appears, when they are last seen, what objects are attributed to them, "
+            "their actions over time, and any interactions with other tracked people.\n"
+            "If clothing, helmets, or bags are not in the evidence, say they are unknown instead of guessing.\n"
+            "Write 3-5 sentences.\n\n"
+            f"Evidence JSON:\n{payload_txt}\n\n"
+            "Summary:"
+        )
+
+    def build_scene_prompt(self, event_log, track_payload):
+        packet = {
+            "event_log": event_log,
+            "tracks": track_payload,
+        }
+        packet_txt = json.dumps(packet, indent=2)
+        return (
+            "You are a surveillance video analyst preparing a longer scene summary for one camera.\n"
+            "The input is already structured by a tracker, object attribution stage, action classifier, and "
+            "5-second event windows.\n"
+            "Write a factual summary of the full scene in 2 short paragraphs.\n"
+            "Prioritize entries, exits or last-seen moments, people carrying bags or other tracked objects, "
+            "person-person interactions, and notable action changes over time.\n"
+            "If two people have a 'close' interaction with a combined_box, treat it as a joint interaction region. "
+            "If they are 'nearby', keep them as separate boxes and describe the interaction conservatively.\n"
+            "Do not invent clothing, helmets, or objects that are not explicitly present in the evidence.\n\n"
+            f"Structured scene packet:\n{packet_txt}\n\n"
+            "Scene summary:"
+        )
+
+    def summarize_track(self, track_id, segments, track_metadata=None, visual_evidence=None):
+        prompt = self.build_track_prompt(track_id, segments, track_metadata=track_metadata)
+        return self._generate(prompt, max_new_tokens=180)
+
+    def summarize_scene(self, event_log, track_payload, scene_images=None):
+        prompt = self.build_scene_prompt(event_log, track_payload)
+        return self._generate(prompt, max_new_tokens=280)
+
+
+class QwenVLSummarizer:
+    uses_visual_inputs = True
+
+    def __init__(
+        self,
+        model_id=DEFAULT_VL_MODEL_ID,
+        max_track_images=4,
+        max_scene_images=4,
+        device="auto",
+    ):
+        self.model_id = model_id
+        self.max_track_images = max(0, int(max_track_images))
+        self.max_scene_images = max(0, int(max_scene_images))
+        self.device = resolve_device(device)
+        self.input_device = self.device
+        self.processor = AutoProcessor.from_pretrained(model_id)
+        self.model = _load_vl_model(model_id, self.device)
+
+    def _generate(self, prompt, image_arrays=None, max_new_tokens=220):
+        image_arrays = list(image_arrays or [])
+
+        with tempfile.TemporaryDirectory() as tmpdir_name:
+            image_refs = []
+            for idx, image_rgb in enumerate(image_arrays):
+                path = Path(tmpdir_name) / f"frame_{idx:02d}.png"
+                image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+                cv2.imwrite(str(path), image_bgr)
+                image_refs.append(str(path))
+
+            content = [{"type": "image", "image": item} for item in image_refs]
+            content.append({"type": "text", "text": prompt})
+            messages = [{"role": "user", "content": content}]
+
+            inputs = self.processor.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+            inputs.pop("token_type_ids", None)
+            inputs = _move_to_device(inputs, self.input_device)
+
+            with torch.inference_mode():
+                generated = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                )
+
+        prompt_len = inputs["input_ids"].shape[-1]
+        generated_ids = generated[:, prompt_len:]
+        decoded = self.processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )
+        return decoded[0].strip()
+
+    def build_track_prompt(self, track_id, segments, track_metadata=None):
+        payload = {
+            "track_id": track_id,
+            "segments": segments,
+            "metadata": track_metadata or {},
+        }
+        payload_txt = json.dumps(payload, indent=2)
+        return (
+            "You are a surveillance video analyst.\n"
+            "The images are sampled crops from one tracked person over time.\n"
+            "Use the images only to describe visible appearance and carried items when they are clearly shown.\n"
+            "Use the structured evidence to describe timing, actions, and interactions.\n"
+            "If a detail is not visible in the images or not present in the evidence, say it is unknown.\n"
+            "Write 3-5 factual sentences.\n\n"
+            f"Evidence JSON:\n{payload_txt}\n\n"
+            "Track summary:"
+        )
+
+    def build_scene_prompt(self, event_log, track_payload):
+        packet = {
+            "event_log": event_log,
+            "tracks": track_payload,
+        }
+        packet_txt = json.dumps(packet, indent=2)
+        return (
+            "You are a surveillance video analyst preparing a scene summary for one camera.\n"
+            "The images are sampled scene frames from across the video.\n"
+            "Use the images for visible layout and appearance cues, and use the structured evidence for chronology.\n"
+            "Prioritize entries, last-seen moments, carried objects, interactions, and action changes.\n"
+            "Do not invent details that are absent from both the images and structured evidence.\n"
+            "Write 2 short paragraphs.\n\n"
+            f"Structured scene packet:\n{packet_txt}\n\n"
+            "Scene summary:"
+        )
+
+    def summarize_track(self, track_id, segments, track_metadata=None, visual_evidence=None):
+        prompt = self.build_track_prompt(track_id, segments, track_metadata=track_metadata)
+        images = list(visual_evidence or [])[: self.max_track_images]
+        return self._generate(prompt, image_arrays=images, max_new_tokens=220)
+
+    def summarize_scene(self, event_log, track_payload, scene_images=None):
+        prompt = self.build_scene_prompt(event_log, track_payload)
+        images = list(scene_images or [])[: self.max_scene_images]
+        return self._generate(prompt, image_arrays=images, max_new_tokens=320)
+
+
+def build_summarizer(
+    backend="text",
+    model_id=None,
+    max_track_images=4,
+    max_scene_images=4,
+    device="auto",
+):
+    backend = str(backend or "text").strip().lower()
+    resolved_model_id = _select_model_id(model_id, backend)
+
+    if backend == "text":
+        return QwenSummarizer(model_id=resolved_model_id, device=device)
+    if backend == "vl":
+        return QwenVLSummarizer(
+            model_id=resolved_model_id,
+            max_track_images=max_track_images,
+            max_scene_images=max_scene_images,
+            device=device,
+        )
+    raise ValueError(f"Unsupported summary backend: {backend}")

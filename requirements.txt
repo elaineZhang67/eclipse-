@@ -1,0 +1,16 @@
+torch
+torchvision
+torchaudio
+ultralytics
+lap
+opencv-python-headless
+numpy
+scipy
+tqdm
+transformers>=4.57.0
+accelerate
+sentencepiece
+einops
+timm
+matplotlib
+seaborn
