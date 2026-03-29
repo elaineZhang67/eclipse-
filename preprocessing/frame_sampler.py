@@ -1,10 +1,14 @@
 import cv2
+import math
 
 class FrameSampler:
     def __init__(self, target_fps=12.0):
         self.target_fps = target_fps
         self.cap = None
         self.native_fps = 0.0
+        self.total_frames = 0
+        self.duration_sec = 0.0
+        self.estimated_sampled_frames = 0
         self._frame_period = 1
         self._frame_idx = -1
         self._last_t_sec = 0.0
@@ -16,7 +20,18 @@ class FrameSampler:
         self.native_fps = float(self.cap.get(cv2.CAP_PROP_FPS) or 0.0)
         if self.native_fps <= 0:
             self.native_fps = 30.0
+        self.total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         self._frame_period = max(1, int(round(self.native_fps / self.target_fps)))
+        self.duration_sec = (
+            float(self.total_frames) / max(self.native_fps, 1e-6)
+            if self.total_frames > 0
+            else 0.0
+        )
+        self.estimated_sampled_frames = (
+            int(math.ceil(float(self.total_frames) / float(self._frame_period)))
+            if self.total_frames > 0
+            else 0
+        )
         self._frame_idx = -1
         self._last_t_sec = 0.0
         return self.cap

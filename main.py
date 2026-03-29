@@ -1,5 +1,9 @@
+import json
 import argparse
+
 from pipeline import run_pipeline
+from memory_store.sqlite_store import SurveillanceMemoryStore
+from runtime.object_preset import available_environments
 
 print("MAIN START")
 
@@ -8,6 +12,7 @@ def parse_args():
     p.add_argument("--video", type=str, required=True, help="path to input video")
     p.add_argument("--yolo", type=str, default="yolov8n.pt", help="YOLOv8 weights")
     p.add_argument("--tracker", type=str, default="botsort.yaml", help="Ultralytics tracker config")
+    p.add_argument("--disable_progress", action="store_true", help="disable tqdm progress bars")
     p.add_argument(
         "--device",
         type=str,
@@ -24,12 +29,21 @@ def parse_args():
     p.add_argument("--max_people", type=int, default=20, help="max tracked people to keep state for")
     p.add_argument("--track_labels", type=str, default="person", help="comma-separated classes to track")
     p.add_argument(
+        "--environment",
+        type=str,
+        default="generic",
+        choices=available_environments(),
+        help="environment preset used to choose up to five object types when --object_labels is omitted",
+    )
+    p.add_argument("--max_object_types", type=int, default=5, help="maximum number of object types to monitor")
+    p.add_argument(
         "--object_labels",
         type=str,
-        default="backpack,handbag,suitcase",
-        help="comma-separated object labels to attribute to nearby people",
+        default=None,
+        help="comma-separated object labels to attribute to nearby people; overrides environment preset",
     )
     p.add_argument("--event_window_sec", type=float, default=5.0, help="event-log window size in seconds")
+    p.add_argument("--long_summary_sec", type=float, default=60.0, help="longer summary chunk size in seconds")
     p.add_argument("--interaction_combine_iou", type=float, default=0.05, help="IOU threshold to merge two boxes into one interaction region")
     p.add_argument("--interaction_combine_dist", type=float, default=1.2, help="normalized center-distance threshold for a merged interaction region")
     p.add_argument("--interaction_nearby_dist", type=float, default=2.5, help="normalized center-distance threshold for nearby but separate interactions")
@@ -51,15 +65,41 @@ def parse_args():
     p.add_argument("--vl_max_scene_images", type=int, default=4, help="max sampled scene frames to pass to the VL summarizer")
     p.add_argument("--vl_track_gap_sec", type=float, default=1.5, help="minimum time gap between stored track crops for VL summarization")
     p.add_argument("--vl_scene_gap_sec", type=float, default=3.0, help="minimum time gap between stored scene frames for VL summarization")
+    p.add_argument("--question", type=str, default=None, help="optional question to answer from the event log and long summaries")
+    p.add_argument("--question_top_k", type=int, default=4, help="number of retrieved context chunks for QA")
+    p.add_argument("--camera_id", type=str, default="camera_1", help="camera identifier for persistence and chat")
+    p.add_argument("--run_id", type=str, default=None, help="optional run identifier when saving to persistent memory")
+    p.add_argument("--save_json", type=str, default=None, help="optional JSON file path for saving outputs")
+    p.add_argument("--memory_db", type=str, default=None, help="optional sqlite memory store path")
     return p.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     results = run_pipeline(args)
 
+    if args.memory_db:
+        store = SurveillanceMemoryStore(args.memory_db)
+        persisted_run_id = store.save_run(
+            results,
+            camera_id=args.camera_id,
+            video_path=args.video,
+            run_id=args.run_id,
+        )
+        results["persisted_run_id"] = persisted_run_id
+
+    if args.save_json:
+        with open(args.save_json, "w") as handle:
+            json.dump(results, handle, indent=2)
+
     print("\n================= FINAL OUTPUT =================")
     print("\nConfig:")
     print(results["config"])
+    if "stats" in results:
+        print("\nStats:")
+        print(results["stats"])
+    if "persisted_run_id" in results:
+        print("\nPersisted run id:")
+        print(results["persisted_run_id"])
 
     if results["config"]["unsupported_track_labels"]:
         print("\nUnsupported track labels:")
@@ -72,14 +112,32 @@ if __name__ == "__main__":
     for window in results["event_log"]:
         print(f"  - {window}")
 
+    if results.get("interval_summaries"):
+        print("\nInterval summaries:")
+        for interval in results["interval_summaries"]:
+            print(f"  - {interval}")
+
     if "scene_summary" in results:
         print("\nScene summary:")
         print(results["scene_summary"])
+
+    if "qa" in results:
+        print("\nQuestion:")
+        print(results["qa"]["question"])
+        print("Retrieved context:")
+        for item in results["qa"].get("retrieved_context", []):
+            print(f"  - {item}")
+        if "answer" in results["qa"]:
+            print("Answer:")
+            print(results["qa"]["answer"])
 
     for tid, obj in results["tracks"].items():
         print(f"\n[track_id={tid}]")
         print("Metadata:")
         print(f"  {obj['metadata']}")
+        if "profile" in obj:
+            print("Profile:")
+            print(f"  {obj['profile']}")
         print("Timeline segments:")
         for seg in obj["segments"]:
             print(f"  - {seg}")

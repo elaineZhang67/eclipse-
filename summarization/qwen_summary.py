@@ -1,4 +1,5 @@
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -28,6 +29,42 @@ def _select_model_id(model_id, backend):
     if backend == "vl":
         return DEFAULT_VL_MODEL_ID
     return DEFAULT_TEXT_MODEL_ID
+
+
+def _extract_json(text):
+    cleaned = str(text).strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+
+    try:
+        return json.loads(cleaned[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
+def _format_context_docs(context_docs):
+    lines = []
+    for idx, doc in enumerate(context_docs or [], start=1):
+        lines.append(f"[context {idx}] {doc.get('text', '')}")
+    return "\n".join(lines) if lines else "No context documents."
+
+
+def _format_chat_history(conversation_history):
+    lines = []
+    for item in conversation_history or []:
+        role = str(item.get("role", "user")).strip().lower()
+        content = str(item.get("content", "")).strip()
+        if not content:
+            continue
+        label = "User" if role == "user" else "Assistant"
+        lines.append("{label}: {content}".format(label=label, content=content))
+    return "\n".join(lines) if lines else "No prior conversation."
 
 
 def _load_vl_model(model_id, device):
@@ -83,6 +120,31 @@ class QwenSummarizer:
         generated_ids = out[0][prompt_len:]
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
+    def build_track_profile_prompt(self, track_id, segments, track_metadata=None, allowed_objects=None):
+        payload = {
+            "track_id": track_id,
+            "segments": segments,
+            "metadata": track_metadata or {},
+            "allowed_objects": list(allowed_objects or []),
+        }
+        payload_txt = json.dumps(payload, indent=2)
+        return (
+            "You are a surveillance video analyst.\n"
+            "Infer a structured person profile from the evidence only.\n"
+            "Because this is a text-only backend, set appearance fields to null when they are not present in the evidence.\n"
+            "Use only allowed_objects labels for carried_objects.\n"
+            "Return ONLY valid JSON with this schema:\n"
+            "{\n"
+            '  "track_id": int,\n'
+            '  "appearance": {"top_color": string|null, "bottom_color": string|null, "outerwear": string|null, "helmet": boolean|null},\n'
+            '  "carried_objects": [{"label": string, "source": "detector|visual|both"}],\n'
+            '  "behavior_overview": string,\n'
+            '  "uncertain_fields": [string]\n'
+            "}\n\n"
+            f"Evidence JSON:\n{payload_txt}\n\n"
+            "JSON:"
+        )
+
     def build_track_prompt(self, track_id, segments, track_metadata=None):
         payload = {
             "track_id": track_id,
@@ -121,6 +183,46 @@ class QwenSummarizer:
             "Scene summary:"
         )
 
+    def build_interval_prompt(self, interval_packet):
+        packet_txt = json.dumps(interval_packet, indent=2)
+        return (
+            "You are summarizing one longer surveillance interval that already contains 5-second event windows.\n"
+            "Summarize the important events in 4-6 sentences.\n"
+            "Focus on entries, exits, object carrying, action changes, and interactions.\n"
+            "Use exact track IDs when possible.\n\n"
+            f"Interval packet:\n{packet_txt}\n\n"
+            "Interval summary:"
+        )
+
+    def build_qa_prompt(self, question, context_docs, conversation_history=None):
+        return (
+            "You answer surveillance-video questions using only the provided retrieved context.\n"
+            "If the context is insufficient, say so explicitly.\n"
+            "Answer in 3-6 sentences and cite track IDs and time ranges when available.\n\n"
+            f"Conversation history:\n{_format_chat_history(conversation_history)}\n\n"
+            f"Question:\n{question}\n\n"
+            f"Retrieved context:\n{_format_context_docs(context_docs)}\n\n"
+            "Answer:"
+        )
+
+    def describe_track_profile(
+        self,
+        track_id,
+        segments,
+        track_metadata=None,
+        visual_evidence=None,
+        allowed_objects=None,
+    ):
+        prompt = self.build_track_profile_prompt(
+            track_id,
+            segments,
+            track_metadata=track_metadata,
+            allowed_objects=allowed_objects,
+        )
+        raw = self._generate(prompt, max_new_tokens=220)
+        parsed = _extract_json(raw)
+        return parsed if parsed is not None else {"raw_response": raw}
+
     def summarize_track(self, track_id, segments, track_metadata=None, visual_evidence=None):
         prompt = self.build_track_prompt(track_id, segments, track_metadata=track_metadata)
         return self._generate(prompt, max_new_tokens=180)
@@ -128,6 +230,14 @@ class QwenSummarizer:
     def summarize_scene(self, event_log, track_payload, scene_images=None):
         prompt = self.build_scene_prompt(event_log, track_payload)
         return self._generate(prompt, max_new_tokens=280)
+
+    def summarize_interval(self, interval_packet, scene_images=None):
+        prompt = self.build_interval_prompt(interval_packet)
+        return self._generate(prompt, max_new_tokens=220)
+
+    def answer_question(self, question, context_docs, conversation_history=None):
+        prompt = self.build_qa_prompt(question, context_docs, conversation_history=conversation_history)
+        return self._generate(prompt, max_new_tokens=220)
 
 
 class QwenVLSummarizer:
@@ -189,6 +299,32 @@ class QwenVLSummarizer:
         )
         return decoded[0].strip()
 
+    def build_track_profile_prompt(self, track_id, segments, track_metadata=None, allowed_objects=None):
+        payload = {
+            "track_id": track_id,
+            "segments": segments,
+            "metadata": track_metadata or {},
+            "allowed_objects": list(allowed_objects or []),
+        }
+        payload_txt = json.dumps(payload, indent=2)
+        return (
+            "You are a surveillance video analyst.\n"
+            "The images are sampled crops from one tracked person over time.\n"
+            "Use the images only for visible appearance and fine-grained attributes.\n"
+            "Use the structured evidence for time ranges, actions, and interactions.\n"
+            "Use only allowed_objects labels for carried_objects.\n"
+            "Return ONLY valid JSON with this schema:\n"
+            "{\n"
+            '  "track_id": int,\n'
+            '  "appearance": {"top_color": string|null, "bottom_color": string|null, "outerwear": string|null, "helmet": boolean|null},\n'
+            '  "carried_objects": [{"label": string, "source": "detector|visual|both"}],\n'
+            '  "behavior_overview": string,\n'
+            '  "uncertain_fields": [string]\n'
+            "}\n\n"
+            f"Evidence JSON:\n{payload_txt}\n\n"
+            "JSON:"
+        )
+
     def build_track_prompt(self, track_id, segments, track_metadata=None):
         payload = {
             "track_id": track_id,
@@ -224,6 +360,47 @@ class QwenVLSummarizer:
             "Scene summary:"
         )
 
+    def build_interval_prompt(self, interval_packet):
+        packet_txt = json.dumps(interval_packet, indent=2)
+        return (
+            "You are summarizing one surveillance interval.\n"
+            "The images are scene frames sampled from within the interval.\n"
+            "Use images for visual context and the structured packet for chronology.\n"
+            "Summarize the interval in 4-6 sentences with track IDs and notable interactions.\n\n"
+            f"Interval packet:\n{packet_txt}\n\n"
+            "Interval summary:"
+        )
+
+    def build_qa_prompt(self, question, context_docs, conversation_history=None):
+        return (
+            "You answer surveillance-video questions using only the provided retrieved context.\n"
+            "If the context is insufficient, say so explicitly.\n"
+            "Answer in 3-6 sentences and cite track IDs and time ranges when available.\n\n"
+            f"Conversation history:\n{_format_chat_history(conversation_history)}\n\n"
+            f"Question:\n{question}\n\n"
+            f"Retrieved context:\n{_format_context_docs(context_docs)}\n\n"
+            "Answer:"
+        )
+
+    def describe_track_profile(
+        self,
+        track_id,
+        segments,
+        track_metadata=None,
+        visual_evidence=None,
+        allowed_objects=None,
+    ):
+        prompt = self.build_track_profile_prompt(
+            track_id,
+            segments,
+            track_metadata=track_metadata,
+            allowed_objects=allowed_objects,
+        )
+        images = list(visual_evidence or [])[: self.max_track_images]
+        raw = self._generate(prompt, image_arrays=images, max_new_tokens=220)
+        parsed = _extract_json(raw)
+        return parsed if parsed is not None else {"raw_response": raw}
+
     def summarize_track(self, track_id, segments, track_metadata=None, visual_evidence=None):
         prompt = self.build_track_prompt(track_id, segments, track_metadata=track_metadata)
         images = list(visual_evidence or [])[: self.max_track_images]
@@ -233,6 +410,15 @@ class QwenVLSummarizer:
         prompt = self.build_scene_prompt(event_log, track_payload)
         images = list(scene_images or [])[: self.max_scene_images]
         return self._generate(prompt, image_arrays=images, max_new_tokens=320)
+
+    def summarize_interval(self, interval_packet, scene_images=None):
+        prompt = self.build_interval_prompt(interval_packet)
+        images = list(scene_images or [])[: self.max_scene_images]
+        return self._generate(prompt, image_arrays=images, max_new_tokens=220)
+
+    def answer_question(self, question, context_docs, conversation_history=None):
+        prompt = self.build_qa_prompt(question, context_docs, conversation_history=conversation_history)
+        return self._generate(prompt, image_arrays=None, max_new_tokens=220)
 
 
 def build_summarizer(

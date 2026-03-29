@@ -101,13 +101,21 @@ class VisualEvidenceCollector:
             self._track_bank(track_id).add({"t_sec": float(t_sec), "image_rgb": crop_rgb})
             self._last_track_t[track_id] = float(t_sec)
 
-    def get_track_images(self, track_id):
+    def get_track_images(self, track_id, start_sec=None, end_sec=None):
         bank = self._track_banks.get(track_id)
         if bank is None:
             return []
         samples = sorted(bank.items, key=lambda item: item["t_sec"])
+        if start_sec is not None:
+            samples = [item for item in samples if item["t_sec"] >= float(start_sec)]
+        if end_sec is not None:
+            samples = [item for item in samples if item["t_sec"] <= float(end_sec)]
         return [item["image_rgb"] for item in samples]
 
-    def get_scene_images(self):
+    def get_scene_images(self, start_sec=None, end_sec=None):
         samples = sorted(self._scene_bank.items, key=lambda item: item["t_sec"])
+        if start_sec is not None:
+            samples = [item for item in samples if item["t_sec"] >= float(start_sec)]
+        if end_sec is not None:
+            samples = [item for item in samples if item["t_sec"] <= float(end_sec)]
         return [item["image_rgb"] for item in samples]
