@@ -14,3 +14,4 @@ einops
 timm
 matplotlib
 seaborn
+streamlit

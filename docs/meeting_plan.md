@@ -239,6 +239,18 @@ python chat.py \
   --summary_backend text
 ```
 
+Start the frontend:
+
+```bash
+streamlit run chat_frontend.py --server.port 8501 --server.address 0.0.0.0
+```
+
+If you are on a remote server, forward the port locally:
+
+```bash
+ssh -L 8501:localhost:8501 your_user@your_server
+```
+
 One-shot question over memory:
 
 ```bash

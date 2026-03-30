@@ -93,6 +93,26 @@ class SurveillanceMemoryStore:
             )
         return items
 
+    def list_cameras(self):
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT camera_id, COUNT(*) AS run_count, MAX(created_at) AS latest_created_at
+                FROM runs
+                GROUP BY camera_id
+                ORDER BY latest_created_at DESC
+                """
+            ).fetchall()
+
+        return [
+            {
+                "camera_id": row["camera_id"],
+                "run_count": int(row["run_count"]),
+                "latest_created_at": row["latest_created_at"],
+            }
+            for row in rows
+        ]
+
     def load_run(self, run_id):
         with self._connect() as conn:
             row = conn.execute(
