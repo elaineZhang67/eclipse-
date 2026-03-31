@@ -22,11 +22,129 @@ def _prefix_text(source_meta):
     return ". ".join(parts) + ". "
 
 
-def _format_track_payload(track_id, payload):
+def _track_order_key(item):
+    track_id, payload = item
+    metadata = payload.get("metadata", {})
+    first_seen = metadata.get("first_seen")
+    return (first_seen is None, float(first_seen or 0.0), int(track_id))
+
+
+def _build_alias_map(track_payload):
+    alias_map = {}
+    for idx, (track_id, payload) in enumerate(sorted(track_payload.items(), key=_track_order_key), start=1):
+        metadata = payload.get("metadata", {})
+        alias_map[int(track_id)] = metadata.get("display_name") or "Person {idx}".format(idx=idx)
+    return alias_map
+
+
+def _display_name(track_id, payload, alias_map):
+    metadata = payload.get("metadata", {})
+    return metadata.get("display_name") or alias_map.get(int(track_id), "Person")
+
+
+def _track_ref(track_id, payload, alias_map):
+    metadata = payload.get("metadata", {})
+    return metadata.get("track_ref") or "{name} (track {track_id})".format(
+        name=_display_name(track_id, payload, alias_map),
+        track_id=int(track_id),
+    )
+
+
+def _track_refs_for_ids(track_ids, track_payload, alias_map):
+    refs = []
+    for track_id in track_ids or []:
+        tid = int(track_id)
+        refs.append(_track_ref(tid, track_payload.get(tid, {}), alias_map))
+    return refs
+
+
+def _format_profile(profile):
+    if not isinstance(profile, dict):
+        return ""
+
+    appearance = profile.get("appearance") or {}
+    parts = []
+    if appearance.get("top_color"):
+        parts.append("top color {value}".format(value=appearance["top_color"]))
+    if appearance.get("bottom_color"):
+        parts.append("bottom color {value}".format(value=appearance["bottom_color"]))
+    if appearance.get("outerwear"):
+        parts.append("outerwear {value}".format(value=appearance["outerwear"]))
+    if appearance.get("helmet") is not None:
+        parts.append("helmet {value}".format(value=appearance["helmet"]))
+    carried = [
+        item.get("label")
+        for item in profile.get("carried_objects", [])
+        if isinstance(item, dict) and item.get("label")
+    ]
+    if carried:
+        parts.append("carried objects " + ", ".join(carried))
+    if profile.get("behavior_overview"):
+        parts.append("behavior overview {value}".format(value=profile["behavior_overview"]))
+    return ". ".join(parts)
+
+
+def _format_window_event(event, track_payload, alias_map):
+    if event.get("type") == "enter":
+        track_id = int(event.get("track_id"))
+        payload = track_payload.get(track_id, {})
+        return "{track_ref} entered the scene".format(track_ref=_track_ref(track_id, payload, alias_map))
+
+    if event.get("type") == "last_seen":
+        track_id = int(event.get("track_id"))
+        payload = track_payload.get(track_id, {})
+        return "{track_ref} was last seen at {time}".format(
+            track_ref=_track_ref(track_id, payload, alias_map),
+            time=event.get("time"),
+        )
+
+    if event.get("type") == "attributed_objects":
+        track_id = int(event.get("track_id"))
+        payload = track_payload.get(track_id, {})
+        objects = []
+        for item in event.get("objects", []):
+            if isinstance(item, dict):
+                label = item.get("label")
+                object_track_id = item.get("object_track_id")
+                if label and object_track_id is not None:
+                    objects.append("{label} object track {object_track_id}".format(label=label, object_track_id=object_track_id))
+                elif label:
+                    objects.append(label)
+            elif item:
+                objects.append(str(item))
+        if objects:
+            return "{track_ref} was associated with {objects}".format(
+                track_ref=_track_ref(track_id, payload, alias_map),
+                objects=", ".join(objects),
+            )
+
+    if event.get("type") == "interaction":
+        refs = event.get("track_refs") or []
+        if not refs:
+            refs = [
+                "{name} (track {track_id})".format(
+                    name=alias_map.get(int(track_id), "Person"),
+                    track_id=int(track_id),
+                )
+                for track_id in event.get("track_ids", [])
+            ]
+        if refs:
+            return "{kind} interaction between {refs}".format(
+                kind=event.get("kind", "unknown"),
+                refs=" and ".join(refs),
+            )
+
+    return str(event)
+
+
+def _format_track_payload(track_id, payload, alias_map):
     metadata = payload.get("metadata", {})
     segments = payload.get("segments", [])
     parts = [
-        f"track {track_id}",
+        "{track_ref}. entity type {entity_type}".format(
+            track_ref=_track_ref(track_id, payload, alias_map),
+            entity_type=metadata.get("entity_type", "person"),
+        ),
         f"first seen {metadata.get('first_seen')}",
         f"last seen {metadata.get('last_seen')}",
     ]
@@ -52,12 +170,19 @@ def _format_track_payload(track_id, payload):
         )
     for interaction in metadata.get("interactions", []):
         parts.append(
-            "interaction with track {other_track_id} {kinds} count {count}".format(
-                other_track_id=interaction.get("other_track_id"),
+            "interaction with {other_track_ref} {kinds} count {count}".format(
+                other_track_ref=interaction.get("other_track_ref") or "track {other_track_id}".format(
+                    other_track_id=interaction.get("other_track_id"),
+                ),
                 kinds=" ".join(interaction.get("kinds", [])),
                 count=interaction.get("count"),
             )
         )
+    profile_text = _format_profile(payload.get("profile"))
+    if profile_text:
+        parts.append("profile " + profile_text)
+    if payload.get("summary"):
+        parts.append("summary {value}".format(value=payload["summary"]))
     return ". ".join(parts)
 
 
@@ -65,7 +190,13 @@ class EventRAG:
     def build_documents(self, event_log, track_payload, interval_summaries, source_meta=None):
         documents = []
         prefix = _prefix_text(source_meta)
+        alias_map = _build_alias_map(track_payload)
         for interval in interval_summaries:
+            active_track_refs = interval.get("active_track_refs") or _track_refs_for_ids(
+                interval.get("active_tracks", []),
+                track_payload,
+                alias_map,
+            )
             documents.append(
                 {
                     "type": "interval",
@@ -75,11 +206,11 @@ class EventRAG:
                     "end": interval["end"],
                     "text": (
                         prefix +
-                        "interval {start} to {end}. active tracks {tracks}. objects {objects}. "
+                        "interval {start} to {end}. active people {tracks}. objects {objects}. "
                         "interaction count {interaction_count}. summary {summary}".format(
                             start=interval["start"],
                             end=interval["end"],
-                            tracks=", ".join(str(item) for item in interval.get("active_tracks", [])) or "none",
+                            tracks=", ".join(active_track_refs) or "none",
                             objects=", ".join(interval.get("objects", [])) or "none",
                             interaction_count=interval.get("interaction_count", 0),
                             summary=interval.get("summary", ""),
@@ -97,11 +228,21 @@ class EventRAG:
                     "track_id": int(track_id),
                     "start": payload.get("metadata", {}).get("first_seen"),
                     "end": payload.get("metadata", {}).get("last_seen"),
-                    "text": prefix + _format_track_payload(track_id, payload),
+                    "display_name": _display_name(track_id, payload, alias_map),
+                    "text": prefix + _format_track_payload(track_id, payload, alias_map),
                 }
             )
 
         for window in event_log:
+            active_track_refs = window.get("active_track_refs") or _track_refs_for_ids(
+                window.get("active_tracks", []),
+                track_payload,
+                alias_map,
+            )
+            event_text = "; ".join(
+                _format_window_event(event, track_payload, alias_map)
+                for event in window.get("events", [])
+            ) or "none"
             documents.append(
                 {
                     "type": "window",
@@ -109,11 +250,11 @@ class EventRAG:
                     "run_id": None if not source_meta else source_meta.get("run_id"),
                     "start": window["start"],
                     "end": window["end"],
-                    "text": prefix + "window {start} to {end}. active tracks {tracks}. events {events}".format(
+                    "text": prefix + "window {start} to {end}. active people {tracks}. events {events}".format(
                         start=window["start"],
                         end=window["end"],
-                        tracks=", ".join(str(item) for item in window.get("active_tracks", [])) or "none",
-                        events=window.get("events", []),
+                        tracks=", ".join(active_track_refs) or "none",
+                        events=event_text,
                     ),
                 }
             )

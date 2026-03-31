@@ -38,6 +38,7 @@ def _build_session(memory_db, device, summary_backend, llm_model, camera_id, run
         history_turns=history_turns,
     )
     session.last_track_ids = list(st.session_state.get("last_track_ids", []))
+    session.last_track_refs = list(st.session_state.get("last_track_refs", []))
     return session
 
 
@@ -57,7 +58,7 @@ def _sample_questions():
     cols = st.columns(3)
     prompts = [
         "Who entered the scene and when?",
-        "What was track 1 wearing and doing?",
+        "What was Person 1 wearing and doing?",
         "Which object track stayed with the same person over time?",
     ]
     selected = None
@@ -140,6 +141,7 @@ def main():
         if st.button("New Session"):
             st.session_state["session_id"] = uuid.uuid4().hex[:12]
             st.session_state["last_track_ids"] = []
+            st.session_state["last_track_refs"] = []
             st.rerun()
 
         st.caption("Session ID: {session_id}".format(session_id=st.session_state.get("session_id", "pending")))
@@ -183,6 +185,7 @@ def main():
                 with st.spinner("Generating answer..."):
                     result = session.ask(question)
                 st.session_state["last_track_ids"] = list(result.get("last_track_ids", []))
+                st.session_state["last_track_refs"] = list(result.get("last_track_refs", []))
             except Exception as exc:
                 st.error("Question answering failed: {error}".format(error=exc))
             else:

@@ -20,6 +20,20 @@ def _extract_track_ids(documents):
     return sorted(set(track_ids))
 
 
+def _extract_track_refs(documents):
+    refs = []
+    for doc in documents:
+        if doc.get("track_id") is None:
+            continue
+        track_id = int(doc["track_id"])
+        display_name = doc.get("display_name")
+        if display_name:
+            refs.append("{name} (track {track_id})".format(name=display_name, track_id=track_id))
+        else:
+            refs.append("track {track_id}".format(track_id=track_id))
+    return refs
+
+
 def _contains_pronoun(question):
     lowered = str(question).lower()
     pronouns = [" he ", " she ", " they ", " them ", " him ", " her ", " that person ", " this person "]
@@ -47,6 +61,7 @@ class SurveillanceChatSession:
         self.history_turns = max(0, int(history_turns))
         self.rag = EventRAG()
         self.last_track_ids = []
+        self.last_track_refs = []
 
     def set_camera_filter(self, camera_id):
         self.camera_id = camera_id
@@ -85,10 +100,10 @@ class SurveillanceChatSession:
         if self.last_track_ids and _contains_pronoun(question) and not _TRACK_PATTERN.search(question):
             return (
                 "{question}\n"
-                "Likely referent from prior turn: track IDs {track_ids}."
+                "Likely referent from prior turn: {track_refs}."
             ).format(
                 question=question,
-                track_ids=", ".join(str(item) for item in self.last_track_ids),
+                track_refs=", ".join(self.last_track_refs or [str(item) for item in self.last_track_ids]),
             )
         return question
 
@@ -113,6 +128,7 @@ class SurveillanceChatSession:
             self.store.append_message(self.session_id, "user", question, metadata={"resolved_question": resolved_question})
             self.store.append_message(self.session_id, "assistant", answer, metadata=metadata)
             self.last_track_ids = []
+            self.last_track_refs = []
             return {
                 "session_id": self.session_id,
                 "question": question,
@@ -120,6 +136,7 @@ class SurveillanceChatSession:
                 "retrieved_context": [],
                 "answer": answer,
                 "last_track_ids": [],
+                "last_track_refs": [],
             }
 
         retrieved = self.rag.retrieve(resolved_question, documents, top_k=self.top_k)
@@ -136,6 +153,7 @@ class SurveillanceChatSession:
                 conversation_history=history,
             )
         self.last_track_ids = _extract_track_ids(retrieved)
+        self.last_track_refs = _extract_track_refs(retrieved)
 
         metadata = {
             "resolved_question": resolved_question,
@@ -143,6 +161,7 @@ class SurveillanceChatSession:
             "camera_id": self.camera_id,
             "run_ids": self.run_ids,
             "last_track_ids": self.last_track_ids,
+            "last_track_refs": self.last_track_refs,
         }
         self.store.append_message(self.session_id, "user", question, metadata={"resolved_question": resolved_question})
         self.store.append_message(self.session_id, "assistant", answer, metadata=metadata)
@@ -154,4 +173,5 @@ class SurveillanceChatSession:
             "retrieved_context": retrieved,
             "answer": answer,
             "last_track_ids": list(self.last_track_ids),
+            "last_track_refs": list(self.last_track_refs),
         }

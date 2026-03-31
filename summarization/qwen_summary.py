@@ -150,11 +150,14 @@ class QwenSummarizer:
         return (
             "You are a surveillance video analyst.\n"
             "Infer a structured person profile from the evidence only.\n"
+            "Each track corresponds to one human subject.\n"
+            "If metadata includes display_name or track_ref, treat that as the preferred human-readable identity.\n"
             "Because this is a text-only backend, set appearance fields to null when they are not present in the evidence.\n"
             "Use only allowed_objects labels for carried_objects.\n"
             "Return ONLY valid JSON with this schema:\n"
             "{\n"
             '  "track_id": int,\n'
+            '  "display_name": string,\n'
             '  "appearance": {"top_color": string|null, "bottom_color": string|null, "outerwear": string|null, "helmet": boolean|null},\n'
             '  "carried_objects": [{"label": string, "source": "detector|visual|both"}],\n'
             '  "behavior_overview": string,\n'
@@ -174,6 +177,8 @@ class QwenSummarizer:
         return (
             "You are a surveillance video analyst.\n"
             "Summarize the person track from structured evidence only.\n"
+            "Each track corresponds to one human subject.\n"
+            "Prefer metadata.display_name or metadata.track_ref instead of referring to people only by raw track IDs.\n"
             "Focus on: when the person appears, when they are last seen, what objects are attributed to them, "
             "their actions over time, and any interactions with other tracked people.\n"
             "If clothing, helmets, or bags are not in the evidence, say they are unknown instead of guessing.\n"
@@ -192,6 +197,8 @@ class QwenSummarizer:
             "You are a surveillance video analyst preparing a longer scene summary for one camera.\n"
             "The input is already structured by a tracker, object attribution stage, action classifier, and "
             "5-second event windows.\n"
+            "Each track corresponds to one human subject. Prefer display_name or track_ref labels such as "
+            "'Person 1 (track 7)' instead of raw numeric IDs alone.\n"
             "Write a factual summary of the full scene in 2 short paragraphs.\n"
             "Prioritize entries, exits or last-seen moments, people carrying bags or other tracked objects, "
             "person-person interactions, and notable action changes over time.\n"
@@ -206,9 +213,10 @@ class QwenSummarizer:
         packet_txt = json.dumps(interval_packet, indent=2)
         return (
             "You are summarizing one longer surveillance interval that already contains 5-second event windows.\n"
+            "Each track corresponds to one human subject, and display_name / track_ref should be used when present.\n"
             "Summarize the important events in 4-6 sentences.\n"
             "Focus on entries, exits, object carrying, action changes, and interactions.\n"
-            "Use exact track IDs when possible.\n\n"
+            "Use human-readable labels first and raw track IDs only as grounding.\n\n"
             f"Interval packet:\n{packet_txt}\n\n"
             "Interval summary:"
         )
@@ -216,6 +224,7 @@ class QwenSummarizer:
     def build_qa_prompt(self, question, context_docs, conversation_history=None):
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
+            "Each track corresponds to one human subject. Prefer labels like 'Person 1 (track 7)' when available.\n"
             "If the context is insufficient, say so explicitly.\n"
             "Answer in 3-6 sentences and cite track IDs and time ranges when available.\n\n"
             f"Conversation history:\n{_format_chat_history(conversation_history)}\n\n"
@@ -330,12 +339,15 @@ class QwenVLSummarizer:
         return (
             "You are a surveillance video analyst.\n"
             "The images are sampled crops from one tracked person over time.\n"
+            "Each track corresponds to one human subject.\n"
+            "If metadata includes display_name or track_ref, treat that as the preferred human-readable identity.\n"
             "Use the images only for visible appearance and fine-grained attributes.\n"
             "Use the structured evidence for time ranges, actions, and interactions.\n"
             "Use only allowed_objects labels for carried_objects.\n"
             "Return ONLY valid JSON with this schema:\n"
             "{\n"
             '  "track_id": int,\n'
+            '  "display_name": string,\n'
             '  "appearance": {"top_color": string|null, "bottom_color": string|null, "outerwear": string|null, "helmet": boolean|null},\n'
             '  "carried_objects": [{"label": string, "source": "detector|visual|both"}],\n'
             '  "behavior_overview": string,\n'
@@ -355,6 +367,8 @@ class QwenVLSummarizer:
         return (
             "You are a surveillance video analyst.\n"
             "The images are sampled crops from one tracked person over time.\n"
+            "Each track corresponds to one human subject.\n"
+            "Prefer metadata.display_name or metadata.track_ref instead of referring to people only by raw track IDs.\n"
             "Use the images only to describe visible appearance and carried items when they are clearly shown.\n"
             "Use the structured evidence to describe timing, actions, and interactions.\n"
             "If a detail is not visible in the images or not present in the evidence, say it is unknown.\n"
@@ -372,6 +386,8 @@ class QwenVLSummarizer:
         return (
             "You are a surveillance video analyst preparing a scene summary for one camera.\n"
             "The images are sampled scene frames from across the video.\n"
+            "Each track corresponds to one human subject. Prefer display_name or track_ref labels such as "
+            "'Person 1 (track 7)' instead of raw numeric IDs alone.\n"
             "Use the images for visible layout and appearance cues, and use the structured evidence for chronology.\n"
             "Prioritize entries, last-seen moments, carried objects, interactions, and action changes.\n"
             "Do not invent details that are absent from both the images and structured evidence.\n"
@@ -385,8 +401,9 @@ class QwenVLSummarizer:
         return (
             "You are summarizing one surveillance interval.\n"
             "The images are scene frames sampled from within the interval.\n"
+            "Each track corresponds to one human subject, and display_name / track_ref should be used when present.\n"
             "Use images for visual context and the structured packet for chronology.\n"
-            "Summarize the interval in 4-6 sentences with track IDs and notable interactions.\n\n"
+            "Summarize the interval in 4-6 sentences with human-readable labels first and track IDs as grounding.\n\n"
             f"Interval packet:\n{packet_txt}\n\n"
             "Interval summary:"
         )
@@ -394,6 +411,7 @@ class QwenVLSummarizer:
     def build_qa_prompt(self, question, context_docs, conversation_history=None):
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
+            "Each track corresponds to one human subject. Prefer labels like 'Person 1 (track 7)' when available.\n"
             "If the context is insufficient, say so explicitly.\n"
             "Answer in 3-6 sentences and cite track IDs and time ranges when available.\n\n"
             f"Conversation history:\n{_format_chat_history(conversation_history)}\n\n"

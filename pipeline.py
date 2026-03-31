@@ -35,6 +35,65 @@ def _build_tqdm(iterable=None, total=None, desc="", unit="it", disable=False):
     )
 
 
+def _track_order_key(item):
+    track_id, metadata = item
+    first_seen = metadata.get("first_seen")
+    return (first_seen is None, float(first_seen or 0.0), int(track_id))
+
+
+def _annotate_person_aliases(event_log, per_track_metadata):
+    alias_map = {}
+    ordered_tracks = sorted(per_track_metadata.items(), key=_track_order_key)
+    for idx, (track_id, metadata) in enumerate(ordered_tracks, start=1):
+        display_name = "Person {idx}".format(idx=idx)
+        metadata["entity_type"] = "person"
+        metadata["display_name"] = display_name
+        metadata["track_ref"] = "{name} (track {track_id})".format(
+            name=display_name,
+            track_id=track_id,
+        )
+        alias_map[int(track_id)] = display_name
+
+    for metadata in per_track_metadata.values():
+        for interaction in metadata.get("interactions", []):
+            other_track_id = int(interaction.get("other_track_id"))
+            other_name = alias_map.get(other_track_id, "Track {track_id}".format(track_id=other_track_id))
+            interaction["other_display_name"] = other_name
+            interaction["other_track_ref"] = "{name} (track {track_id})".format(
+                name=other_name,
+                track_id=other_track_id,
+            )
+
+    for window in event_log:
+        window["active_track_refs"] = [
+            "{name} (track {track_id})".format(
+                name=alias_map.get(int(track_id), "Track {track_id}".format(track_id=track_id)),
+                track_id=int(track_id),
+            )
+            for track_id in window.get("active_tracks", [])
+        ]
+        for event in window.get("events", []):
+            if event.get("track_id") is not None:
+                track_id = int(event["track_id"])
+                event["track_display_name"] = alias_map.get(track_id, "Track {track_id}".format(track_id=track_id))
+                event["track_ref"] = "{name} (track {track_id})".format(
+                    name=event["track_display_name"],
+                    track_id=track_id,
+                )
+            if event.get("track_ids"):
+                track_names = []
+                track_refs = []
+                for track_id in event["track_ids"]:
+                    tid = int(track_id)
+                    name = alias_map.get(tid, "Track {track_id}".format(track_id=tid))
+                    track_names.append(name)
+                    track_refs.append("{name} (track {track_id})".format(name=name, track_id=tid))
+                event["track_display_names"] = track_names
+                event["track_refs"] = track_refs
+
+    return alias_map
+
+
 def run_pipeline(args):
     track_labels = _parse_csv_arg(getattr(args, "track_labels", None), default=["person"])
     explicit_object_labels = _parse_csv_arg(
@@ -155,6 +214,7 @@ def run_pipeline(args):
 
     # (D) temporal aggregation + segmentation + optional LLM
     event_log, per_track_metadata = event_builder.finalize()
+    _annotate_person_aliases(event_log, per_track_metadata)
     track_outputs = {}
     all_track_payload = {}
     tracked_ids = sorted(set(per_track_metadata) | set(per_track_probs))

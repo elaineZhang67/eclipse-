@@ -132,7 +132,11 @@ if __name__ == "__main__":
             print(results["qa"]["answer"])
 
     for tid, obj in results["tracks"].items():
-        print(f"\n[track_id={tid}]")
+        display_name = obj.get("metadata", {}).get("display_name")
+        if display_name:
+            print(f"\n[{display_name} | track_id={tid}]")
+        else:
+            print(f"\n[track_id={tid}]")
         print("Metadata:")
         print(f"  {obj['metadata']}")
         if "profile" in obj:

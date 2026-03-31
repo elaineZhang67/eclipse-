@@ -21,6 +21,8 @@ class SceneIntervalBuilder:
 
         return {
             "track_id": int(track_id),
+            "display_name": metadata.get("display_name"),
+            "track_ref": metadata.get("track_ref"),
             "first_seen": metadata.get("first_seen"),
             "last_seen": metadata.get("last_seen"),
             "objects": list(metadata.get("objects", [])),
@@ -72,6 +74,13 @@ class SceneIntervalBuilder:
                     "start": round(cursor, 2),
                     "end": round(interval_end, 2),
                     "active_tracks": active_tracks,
+                    "active_track_refs": sorted(
+                        {
+                            item
+                            for window in windows
+                            for item in window.get("active_track_refs", [])
+                        }
+                    ),
                     "objects": objects,
                     "interaction_count": len(interactions),
                     "event_count": len(events),
