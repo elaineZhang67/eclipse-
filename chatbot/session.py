@@ -98,14 +98,43 @@ class SurveillanceChatSession:
     def ask(self, question):
         resolved_question = self._resolve_question(question)
         documents = self._build_documents()
+        if not documents:
+            answer = (
+                "No persisted runs are available for the current camera or run filter. "
+                "Run the pipeline with --memory_db first, then select the matching camera or run in the frontend."
+            )
+            metadata = {
+                "resolved_question": resolved_question,
+                "retrieved_context": [],
+                "camera_id": self.camera_id,
+                "run_ids": self.run_ids,
+                "last_track_ids": [],
+            }
+            self.store.append_message(self.session_id, "user", question, metadata={"resolved_question": resolved_question})
+            self.store.append_message(self.session_id, "assistant", answer, metadata=metadata)
+            self.last_track_ids = []
+            return {
+                "session_id": self.session_id,
+                "question": question,
+                "resolved_question": resolved_question,
+                "retrieved_context": [],
+                "answer": answer,
+                "last_track_ids": [],
+            }
+
         retrieved = self.rag.retrieve(resolved_question, documents, top_k=self.top_k)
         history = self.history()
-
-        answer = self.summarizer.answer_question(
-            resolved_question,
-            retrieved,
-            conversation_history=history,
-        )
+        if not retrieved:
+            answer = (
+                "I could not find relevant context for that question in the selected runs. "
+                "Try selecting a different camera or run, or ask with track IDs, time ranges, objects, or interactions."
+            )
+        else:
+            answer = self.summarizer.answer_question(
+                resolved_question,
+                retrieved,
+                conversation_history=history,
+            )
         self.last_track_ids = _extract_track_ids(retrieved)
 
         metadata = {
