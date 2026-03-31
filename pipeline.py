@@ -2,7 +2,6 @@ from collections import defaultdict
 
 from tqdm.auto import tqdm
 
-from detection.detector import YoloDetector
 from tracking.tracker import MultiObjectTracker
 from preprocessing.frame_sampler import FrameSampler
 from preprocessing.clip_builder import ClipBuilder
@@ -56,7 +55,12 @@ def run_pipeline(args):
 
     # 1) modules
     sampler = FrameSampler(target_fps=args.fps)
-    detector = YoloDetector(weights=args.yolo, conf=args.min_conf, classes=object_labels)
+    object_tracker = MultiObjectTracker(
+        weights=args.yolo,
+        tracker_cfg=args.tracker,
+        conf=args.min_conf,
+        classes=object_labels,
+    )
     tracker = MultiObjectTracker(
         weights=args.yolo,
         tracker_cfg=args.tracker,
@@ -113,7 +117,7 @@ def run_pipeline(args):
             if not ok:
                 break
 
-            object_dets = detector.detect(frame_bgr)
+            object_tracks = object_tracker.update(frame_bgr)
             tracks = tracker.update(frame_bgr)
             person_tracks = [tr for tr in tracks if tr.get("label") == "person"]
             if visual_evidence is not None:
@@ -138,12 +142,12 @@ def run_pipeline(args):
                 per_track_probs[tid].append((t_start, t_end, label, float(conf)))
                 clip_count += 1
 
-            event_builder.update(t_sec, person_tracks, object_dets)
+            event_builder.update(t_sec, person_tracks, object_tracks)
             frame_progress.update(1)
             frame_progress.set_postfix(
                 time_s=round(float(t_sec), 1),
                 people=len(person_tracks),
-                objs=len(object_dets),
+                objs=len(object_tracks),
                 clips=clip_count,
             )
     finally:
@@ -243,7 +247,7 @@ def run_pipeline(args):
             "track_labels": track_labels,
             "object_labels": object_labels,
             "unsupported_track_labels": tracker.missing_classes,
-            "unsupported_object_labels": detector.missing_classes,
+            "unsupported_object_labels": object_tracker.missing_classes,
             "clip_len": clip_len,
             "stride": stride,
             "event_window_sec": args.event_window_sec,

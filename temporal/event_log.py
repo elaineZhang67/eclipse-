@@ -77,9 +77,20 @@ class SceneEventBuilder:
             lambda: {
                 "first_seen": None,
                 "last_seen": None,
-                "object_counts": defaultdict(int),
+                "object_track_hits": defaultdict(int),
+                "object_track_labels": {},
                 "interaction_counts": defaultdict(int),
                 "interaction_kinds": defaultdict(set),
+            }
+        )
+        self.object_state = defaultdict(
+            lambda: {
+                "label": None,
+                "first_seen": None,
+                "last_seen": None,
+                "hits": 0,
+                "owner_counts": defaultdict(int),
+                "last_owner_track_id": None,
             }
         )
         self.windows = {}
@@ -105,28 +116,59 @@ class SceneEventBuilder:
         window["events"].append(event)
         return True
 
-    def _assign_objects(self, person_tracks, object_detections):
+    def _assignment_score(self, person_box, obj_box, obj_center):
+        score = 0.0
+        if _center_in_box(obj_center, person_box):
+            score += 3.0
+        score += 2.0 * _iou(obj_box, person_box)
+        score += max(0.0, 1.5 - _normalized_center_distance(obj_box, person_box))
+        return score
+
+    def _record_object_presence(self, t_sec, object_tracks):
+        for obj in object_tracks:
+            object_id = obj.get("track_id")
+            if object_id is None:
+                continue
+
+            state = self.object_state[object_id]
+            state["label"] = obj.get("label", state["label"])
+            if state["first_seen"] is None:
+                state["first_seen"] = t_sec
+            state["last_seen"] = t_sec
+            state["hits"] += 1
+
+    def _assign_objects(self, person_tracks, object_tracks):
         assigned = defaultdict(list)
-        for obj in object_detections:
+        for obj in object_tracks:
             obj_box = obj["xyxy"]
             obj_center = _center(obj_box)
+            object_id = obj.get("track_id")
             best_tid = None
             best_score = float("-inf")
+            scores = {}
 
             for person in person_tracks:
                 person_box = person["xyxy"]
-                score = 0.0
-                if _center_in_box(obj_center, person_box):
-                    score += 3.0
-                score += 2.0 * _iou(obj_box, person_box)
-                score += max(0.0, 1.5 - _normalized_center_distance(obj_box, person_box))
+                score = self._assignment_score(person_box, obj_box, obj_center)
+                scores[person["track_id"]] = score
 
                 if score > best_score:
                     best_score = score
                     best_tid = person["track_id"]
 
-            if best_tid is not None and best_score >= 0.25:
+            if object_id is not None:
+                sticky_owner = self.object_state[object_id]["last_owner_track_id"]
+                sticky_score = scores.get(sticky_owner)
+                if sticky_score is not None and sticky_score >= max(0.5, best_score - 0.25):
+                    best_tid = sticky_owner
+                    best_score = sticky_score
+
+            if best_tid is not None and best_score >= 0.5:
                 assigned[best_tid].append(obj)
+                if object_id is not None:
+                    state = self.object_state[object_id]
+                    state["owner_counts"][best_tid] += 1
+                    state["last_owner_track_id"] = best_tid
         return assigned
 
     def _record_track_presence(self, t_sec, person_tracks):
@@ -152,19 +194,44 @@ class SceneEventBuilder:
 
     def _record_object_events(self, window, assignments):
         for tid, objects in assignments.items():
-            labels = sorted({obj.get("label", "unknown") for obj in objects})
             for obj in objects:
                 label = obj.get("label", "unknown")
-                self.track_state[tid]["object_counts"][label] += 1
+                object_id = obj.get("track_id")
+                if object_id is not None:
+                    self.track_state[tid]["object_track_labels"][int(object_id)] = label
+                    self.track_state[tid]["object_track_hits"][int(object_id)] += 1
+
+            event_objects = []
+            for obj in sorted(
+                objects,
+                key=lambda item: (
+                    item.get("label", "unknown"),
+                    -1 if item.get("track_id") is None else int(item["track_id"]),
+                ),
+            ):
+                object_id = obj.get("track_id")
+                event_objects.append(
+                    {
+                        "object_track_id": None if object_id is None else int(object_id),
+                        "label": obj.get("label", "unknown"),
+                    }
+                )
 
             self._add_event(
                 window,
                 {
                     "type": "attributed_objects",
                     "track_id": tid,
-                    "objects": labels,
+                    "objects": event_objects,
                 },
-                ("objects", tid, tuple(labels)),
+                (
+                    "objects",
+                    tid,
+                    tuple(
+                        (obj["label"], obj["object_track_id"])
+                        for obj in event_objects
+                    ),
+                ),
             )
 
     def _record_interactions(self, window, person_tracks):
@@ -209,10 +276,11 @@ class SceneEventBuilder:
                 self.track_state[tid_a]["interaction_kinds"][tid_b].add(event["kind"])
                 self.track_state[tid_b]["interaction_kinds"][tid_a].add(event["kind"])
 
-    def update(self, t_sec, person_tracks, object_detections):
+    def update(self, t_sec, person_tracks, object_tracks):
         window = self._get_window(t_sec)
         self._record_track_presence(t_sec, person_tracks)
-        assignments = self._assign_objects(person_tracks, object_detections)
+        self._record_object_presence(t_sec, object_tracks)
+        assignments = self._assign_objects(person_tracks, object_tracks)
         self._record_object_events(window, assignments)
         self._record_interactions(window, person_tracks)
 
@@ -249,10 +317,32 @@ class SceneEventBuilder:
             if state["first_seen"] is None:
                 continue
 
+            object_tracks = []
+            label_counts = defaultdict(int)
+            for object_id, label in sorted(
+                state["object_track_labels"].items(),
+                key=lambda item: (item[1], item[0]),
+            ):
+                object_state = self.object_state.get(object_id, {})
+                label_counts[label] += 1
+                object_tracks.append(
+                    {
+                        "object_track_id": int(object_id),
+                        "label": label,
+                        "first_seen": None
+                        if object_state.get("first_seen") is None
+                        else round(object_state["first_seen"], 2),
+                        "last_seen": None
+                        if object_state.get("last_seen") is None
+                        else round(object_state["last_seen"], 2),
+                        "hits": int(state["object_track_hits"].get(object_id, 0)),
+                    }
+                )
+
             object_counts = {
                 label: count
                 for label, count in sorted(
-                    state["object_counts"].items(),
+                    label_counts.items(),
                     key=lambda item: (-item[1], item[0]),
                 )
             }
@@ -274,6 +364,7 @@ class SceneEventBuilder:
                 "last_seen": round(state["last_seen"], 2),
                 "object_counts": object_counts,
                 "objects": list(object_counts.keys()),
+                "object_tracks": object_tracks,
                 "interactions": interactions,
             }
 

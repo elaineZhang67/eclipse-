@@ -32,6 +32,16 @@ def _format_track_payload(track_id, payload):
     ]
     if metadata.get("objects"):
         parts.append("objects " + ", ".join(metadata["objects"]))
+    for obj in metadata.get("object_tracks", []):
+        parts.append(
+            "object track {object_track_id} label {label} first seen {first_seen} last seen {last_seen} hits {hits}".format(
+                object_track_id=obj.get("object_track_id"),
+                label=obj.get("label"),
+                first_seen=obj.get("first_seen"),
+                last_seen=obj.get("last_seen"),
+                hits=obj.get("hits"),
+            )
+        )
     for segment in segments:
         parts.append(
             "action {action} from {start} to {end}".format(

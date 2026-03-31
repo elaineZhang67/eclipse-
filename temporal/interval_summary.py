@@ -2,6 +2,12 @@ def _overlaps(start_a, end_a, start_b, end_b):
     return max(float(start_a), float(start_b)) < min(float(end_a), float(end_b))
 
 
+def _object_label(value):
+    if isinstance(value, dict):
+        return value.get("label")
+    return value
+
+
 class SceneIntervalBuilder:
     def __init__(self, interval_sec=60.0):
         self.interval_sec = max(5.0, float(interval_sec))
@@ -18,6 +24,7 @@ class SceneIntervalBuilder:
             "first_seen": metadata.get("first_seen"),
             "last_seen": metadata.get("last_seen"),
             "objects": list(metadata.get("objects", [])),
+            "object_tracks": list(metadata.get("object_tracks", [])),
             "interactions": list(metadata.get("interactions", [])),
             "segments": segments,
         }
@@ -44,10 +51,11 @@ class SceneIntervalBuilder:
             events = [event for window in windows for event in window.get("events", [])]
             objects = sorted(
                 {
-                    obj
+                    _object_label(obj)
                     for event in events
                     if event.get("type") == "attributed_objects"
                     for obj in event.get("objects", [])
+                    if _object_label(obj)
                 }
             )
             interactions = [
