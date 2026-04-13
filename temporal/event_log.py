@@ -79,6 +79,7 @@ class SceneEventBuilder:
                 "last_seen": None,
                 "object_track_hits": defaultdict(int),
                 "object_track_labels": {},
+                "object_label_hits": defaultdict(int),
                 "interaction_counts": defaultdict(int),
                 "interaction_kinds": defaultdict(set),
             }
@@ -196,6 +197,7 @@ class SceneEventBuilder:
         for tid, objects in assignments.items():
             for obj in objects:
                 label = obj.get("label", "unknown")
+                self.track_state[tid]["object_label_hits"][label] += 1
                 object_id = obj.get("track_id")
                 if object_id is not None:
                     self.track_state[tid]["object_track_labels"][int(object_id)] = label
@@ -339,13 +341,22 @@ class SceneEventBuilder:
                     }
                 )
 
-            object_counts = {
-                label: count
-                for label, count in sorted(
-                    label_counts.items(),
-                    key=lambda item: (-item[1], item[0]),
-                )
-            }
+            if label_counts:
+                object_counts = {
+                    label: count
+                    for label, count in sorted(
+                        label_counts.items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                }
+            else:
+                object_counts = {
+                    label: count
+                    for label, count in sorted(
+                        state["object_label_hits"].items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                }
             interactions = []
             for other_tid, count in sorted(
                 state["interaction_counts"].items(),

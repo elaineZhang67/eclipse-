@@ -2,6 +2,7 @@ from collections import defaultdict
 
 from tqdm.auto import tqdm
 
+from detection.sam3_detector import Sam3Detector
 from tracking.tracker import MultiObjectTracker
 from preprocessing.frame_sampler import FrameSampler
 from preprocessing.clip_builder import ClipBuilder
@@ -114,12 +115,26 @@ def run_pipeline(args):
 
     # 1) modules
     sampler = FrameSampler(target_fps=args.fps)
-    object_tracker = MultiObjectTracker(
-        weights=args.yolo,
-        tracker_cfg=args.tracker,
-        conf=args.min_conf,
-        classes=object_labels,
-    )
+    object_backend = str(getattr(args, "object_backend", "yolo")).strip().lower()
+    if object_backend == "sam3":
+        object_source = Sam3Detector(
+            model_id=getattr(args, "sam3_model", "facebook/sam3"),
+            conf=args.min_conf,
+            mask_threshold=getattr(args, "sam3_mask_threshold", 0.5),
+            classes=object_labels,
+            device=getattr(args, "device", "auto"),
+            track_iou=getattr(args, "sam3_track_iou", 0.3),
+            track_ttl=getattr(args, "sam3_track_ttl", 12),
+        )
+        object_source_missing = list(getattr(object_source, "missing_classes", []))
+    else:
+        object_source = MultiObjectTracker(
+            weights=args.yolo,
+            tracker_cfg=args.tracker,
+            conf=args.min_conf,
+            classes=object_labels,
+        )
+        object_source_missing = list(getattr(object_source, "missing_classes", []))
     tracker = MultiObjectTracker(
         weights=args.yolo,
         tracker_cfg=args.tracker,
@@ -176,7 +191,10 @@ def run_pipeline(args):
             if not ok:
                 break
 
-            object_tracks = object_tracker.update(frame_bgr)
+            if object_backend == "sam3":
+                object_tracks = object_source.update(frame_bgr)
+            else:
+                object_tracks = object_source.update(frame_bgr)
             tracks = tracker.update(frame_bgr)
             person_tracks = [tr for tr in tracks if tr.get("label") == "person"]
             if visual_evidence is not None:
@@ -307,12 +325,17 @@ def run_pipeline(args):
             "track_labels": track_labels,
             "object_labels": object_labels,
             "unsupported_track_labels": tracker.missing_classes,
-            "unsupported_object_labels": object_tracker.missing_classes,
+            "unsupported_object_labels": object_source_missing,
             "clip_len": clip_len,
             "stride": stride,
             "event_window_sec": args.event_window_sec,
             "long_summary_sec": getattr(args, "long_summary_sec", 60.0),
             "tracker": args.tracker,
+            "object_backend": object_backend,
+            "sam3_model": getattr(args, "sam3_model", None) if object_backend == "sam3" else None,
+            "sam3_mask_threshold": getattr(args, "sam3_mask_threshold", None) if object_backend == "sam3" else None,
+            "sam3_track_iou": getattr(args, "sam3_track_iou", None) if object_backend == "sam3" else None,
+            "sam3_track_ttl": getattr(args, "sam3_track_ttl", None) if object_backend == "sam3" else None,
             "device": getattr(args, "device", "auto"),
             "environment": describe_environment(getattr(args, "environment", "generic")),
             "summary_backend": getattr(args, "summary_backend", "text"),

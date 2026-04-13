@@ -12,6 +12,37 @@ def parse_args():
     p.add_argument("--video", type=str, required=True, help="path to input video")
     p.add_argument("--yolo", type=str, default="yolov8n.pt", help="YOLOv8 weights")
     p.add_argument("--tracker", type=str, default="botsort.yaml", help="Ultralytics tracker config")
+    p.add_argument(
+        "--object_backend",
+        type=str,
+        default="yolo",
+        choices=["yolo", "sam3"],
+        help="object detection backend: yolo uses YOLO tracking, sam3 uses SAM3 image segmentation prompts",
+    )
+    p.add_argument(
+        "--sam3_model",
+        type=str,
+        default="facebook/sam3",
+        help="SAM3 model id used when --object_backend sam3",
+    )
+    p.add_argument(
+        "--sam3_mask_threshold",
+        type=float,
+        default=0.5,
+        help="mask threshold used when --object_backend sam3",
+    )
+    p.add_argument(
+        "--sam3_track_iou",
+        type=float,
+        default=0.3,
+        help="IoU threshold for lightweight SAM3 object ID association",
+    )
+    p.add_argument(
+        "--sam3_track_ttl",
+        type=int,
+        default=12,
+        help="number of sampled frames to keep unmatched SAM3 object tracks alive",
+    )
     p.add_argument("--disable_progress", action="store_true", help="disable tqdm progress bars")
     p.add_argument(
         "--device",
