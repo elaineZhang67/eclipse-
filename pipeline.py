@@ -4,6 +4,7 @@ from tqdm.auto import tqdm
 
 from detection.sam3_detector import Sam3Detector
 from tracking.tracker import MultiObjectTracker
+from tracking.appearance_memory import TrackMemoryBank
 from preprocessing.frame_sampler import FrameSampler
 from preprocessing.clip_builder import ClipBuilder
 from video_encoder.videomae_encoder import VideoMAEActionModel
@@ -95,6 +96,26 @@ def _annotate_person_aliases(event_log, per_track_metadata):
     return alias_map
 
 
+def _merge_track_memory_metadata(per_track_metadata, memory_metadata):
+    for track_id, memory_payload in (memory_metadata or {}).items():
+        target = per_track_metadata.setdefault(int(track_id), {})
+        target.update(memory_payload)
+        target.setdefault("entity_type", "person")
+    for track_id, metadata in per_track_metadata.items():
+        metadata.setdefault("entity_type", "person")
+        metadata.setdefault("memory_track_id", int(track_id))
+        metadata.setdefault("tracker_track_ids", [int(track_id)])
+        metadata.setdefault(
+            "identity_history",
+            "memory track {track_id} linked tracker ids {track_id}".format(track_id=int(track_id)),
+        )
+        tracker_track_ids = metadata.get("tracker_track_ids", [])
+        if tracker_track_ids and "tracker_id_count" not in metadata:
+            metadata["tracker_id_count"] = len(tracker_track_ids)
+
+    return per_track_metadata
+
+
 def run_pipeline(args):
     track_labels = _parse_csv_arg(getattr(args, "track_labels", None), default=["person"])
     explicit_object_labels = _parse_csv_arg(
@@ -141,6 +162,13 @@ def run_pipeline(args):
         conf=args.min_conf,
         classes=track_labels,
     )
+    track_memory_bank = None
+    if getattr(args, "use_track_memory", False):
+        track_memory_bank = TrackMemoryBank(
+            similarity_threshold=getattr(args, "appearance_match_threshold", 0.82),
+            mapping_ttl_sec=getattr(args, "appearance_memory_ttl_sec", 8.0),
+            reassoc_gap_sec=getattr(args, "appearance_reassoc_gap_sec", 20.0),
+        )
     clip_builder = ClipBuilder(clip_len=clip_len, stride=stride)
     action_model = VideoMAEActionModel(
         model_id="MCG-NJU/videomae-base-finetuned-kinetics",
@@ -197,6 +225,17 @@ def run_pipeline(args):
                 object_tracks = object_source.update(frame_bgr)
             tracks = tracker.update(frame_bgr)
             person_tracks = [tr for tr in tracks if tr.get("label") == "person"]
+            if track_memory_bank is not None:
+                person_tracks = track_memory_bank.update(frame_bgr, person_tracks, t_sec)
+            else:
+                person_tracks = [
+                    {
+                        **tr,
+                        "raw_track_id": tr.get("track_id"),
+                        "memory_track_id": tr.get("track_id"),
+                    }
+                    for tr in person_tracks
+                ]
             if visual_evidence is not None:
                 visual_evidence.update_scene(frame_bgr, t_sec)
                 visual_evidence.update_tracks(frame_bgr, person_tracks, t_sec)
@@ -232,6 +271,10 @@ def run_pipeline(args):
 
     # (D) temporal aggregation + segmentation + optional LLM
     event_log, per_track_metadata = event_builder.finalize()
+    per_track_metadata = _merge_track_memory_metadata(
+        per_track_metadata,
+        track_memory_bank.export_metadata() if track_memory_bank is not None else {},
+    )
     _annotate_person_aliases(event_log, per_track_metadata)
     track_outputs = {}
     all_track_payload = {}
@@ -256,6 +299,8 @@ def run_pipeline(args):
                 "object_counts": {},
                 "objects": [],
                 "interactions": [],
+                "tracker_track_ids": [int(tid)],
+                "memory_track_id": int(tid),
             },
         )
 
@@ -283,6 +328,10 @@ def run_pipeline(args):
             "metadata": metadata,
             "segments": segments,
         }
+        if "profile" in out:
+            all_track_payload[tid]["profile"] = out["profile"]
+        if "summary" in out:
+            all_track_payload[tid]["summary"] = out["summary"]
         track_progress.set_postfix(segments=len(segments), objects=len(metadata.get("objects", [])))
     track_progress.close()
 
@@ -340,6 +389,10 @@ def run_pipeline(args):
             "environment": describe_environment(getattr(args, "environment", "generic")),
             "summary_backend": getattr(args, "summary_backend", "text"),
             "llm_model": getattr(summarizer, "model_id", None),
+            "use_track_memory": bool(getattr(args, "use_track_memory", False)),
+            "appearance_match_threshold": getattr(args, "appearance_match_threshold", 0.82),
+            "appearance_memory_ttl_sec": getattr(args, "appearance_memory_ttl_sec", 8.0),
+            "appearance_reassoc_gap_sec": getattr(args, "appearance_reassoc_gap_sec", 20.0),
         },
         "stats": {
             "sampled_frames": int(frame_progress.n),
@@ -347,6 +400,7 @@ def run_pipeline(args):
             "native_total_frames": int(sampler.total_frames or 0),
             "video_duration_sec": round(float(sampler.duration_sec or 0.0), 2),
             "tracks": len(tracked_ids),
+            "identity_tracks": 0 if track_memory_bank is None else len(track_memory_bank.export_bank()),
             "event_windows": len(event_log),
             "intervals": len(interval_outputs),
             "action_clips": int(clip_count),
@@ -354,6 +408,7 @@ def run_pipeline(args):
         "tracks": track_outputs,
         "event_log": event_log,
         "interval_summaries": interval_outputs,
+        "track_memory_bank": [] if track_memory_bank is None else track_memory_bank.export_bank(),
     }
     if summarizer is not None:
         scene_images = visual_evidence.get_scene_images() if visual_evidence is not None else None

@@ -45,6 +45,29 @@ def parse_args():
     )
     p.add_argument("--disable_progress", action="store_true", help="disable tqdm progress bars")
     p.add_argument(
+        "--use_track_memory",
+        action="store_true",
+        help="augment tracking with lightweight appearance embeddings and an identity memory bank",
+    )
+    p.add_argument(
+        "--appearance_match_threshold",
+        type=float,
+        default=0.82,
+        help="cosine similarity threshold used to merge fragmented person tracks in the appearance memory bank",
+    )
+    p.add_argument(
+        "--appearance_memory_ttl_sec",
+        type=float,
+        default=8.0,
+        help="how long to keep raw tracker-to-memory bindings alive before reassociation",
+    )
+    p.add_argument(
+        "--appearance_reassoc_gap_sec",
+        type=float,
+        default=20.0,
+        help="maximum gap allowed when matching a new raw tracker ID to an older memory track",
+    )
+    p.add_argument(
         "--device",
         type=str,
         default="auto",
@@ -179,3 +202,8 @@ if __name__ == "__main__":
         if "summary" in obj:
             print("\nLLM Summary:")
             print(obj["summary"])
+
+    if results.get("track_memory_bank"):
+        print("\nTrack memory bank:")
+        for item in results["track_memory_bank"]:
+            print(f"  - {item}")

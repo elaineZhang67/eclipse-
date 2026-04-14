@@ -150,6 +150,22 @@ def _format_track_payload(track_id, payload, alias_map):
     ]
     if metadata.get("objects"):
         parts.append("objects " + ", ".join(metadata["objects"]))
+    if metadata.get("memory_track_id") is not None:
+        parts.append("memory track id {memory_track_id}".format(memory_track_id=metadata.get("memory_track_id")))
+    if metadata.get("tracker_track_ids"):
+        parts.append(
+            "linked raw tracker ids {tracker_track_ids}".format(
+                tracker_track_ids=", ".join(str(item) for item in metadata.get("tracker_track_ids", [])),
+            )
+        )
+    if metadata.get("identity_history"):
+        parts.append("identity history {value}".format(value=metadata["identity_history"]))
+    if metadata.get("appearance_mean_similarity") is not None:
+        parts.append(
+            "appearance mean similarity {value}".format(
+                value=metadata["appearance_mean_similarity"],
+            )
+        )
     for obj in metadata.get("object_tracks", []):
         parts.append(
             "object track {object_track_id} label {label} first seen {first_seen} last seen {last_seen} hits {hits}".format(
