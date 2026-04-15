@@ -3,13 +3,48 @@ from pathlib import Path
 
 import cv2
 import torch
-from transformers import AutoModelForMultimodalLM, AutoProcessor
+from transformers import AutoProcessor
 
-from runtime.device import default_torch_dtype, resolve_device
+from runtime.device import model_load_kwargs, resolve_device
 from summarization.qwen_summary import QwenVLSummarizer, _move_to_device
 
 
 DEFAULT_GEMMA4_MODEL_ID = "google/gemma-4-E4B-it"
+
+
+def _load_gemma4_model(model_id, device):
+    try:
+        from transformers import Gemma4ForConditionalGeneration
+
+        model_cls = Gemma4ForConditionalGeneration
+    except ImportError:
+        try:
+            from transformers import AutoModelForImageTextToText
+        except ImportError as exc:
+            raise RuntimeError(
+                "Gemma 4 requires a newer transformers installation with "
+                "Gemma4ForConditionalGeneration or AutoModelForImageTextToText support."
+            ) from exc
+        model_cls = AutoModelForImageTextToText
+
+    try:
+        model = model_cls.from_pretrained(
+            model_id,
+            **model_load_kwargs(device),
+        )
+    except ValueError as exc:
+        if "model type `gemma4`" in str(exc):
+            raise RuntimeError(
+                "Your installed transformers version does not recognize the Gemma 4 architecture yet. "
+                "Upgrade transformers to a release that includes Gemma4 support, or install the latest "
+                "transformers from source."
+            ) from exc
+        raise
+
+    if device.type != "cuda":
+        model = model.to(device)
+    model.eval()
+    return model
 
 
 class Gemma4VLSummarizer(QwenVLSummarizer):
@@ -27,13 +62,8 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
         self.max_scene_images = max(0, int(max_scene_images))
         self.device = resolve_device(device)
         self.input_device = self.device
-        self.processor = AutoProcessor.from_pretrained(model_id)
-        self.model = AutoModelForMultimodalLM.from_pretrained(
-            model_id,
-            torch_dtype=default_torch_dtype(self.device),
-        )
-        self.model = self.model.to(self.device)
-        self.model.eval()
+        self.processor = AutoProcessor.from_pretrained(model_id, padding_side="left")
+        self.model = _load_gemma4_model(model_id, self.device)
         self.model_dtype = next(self.model.parameters()).dtype
 
     def _generate(self, prompt, image_arrays=None, max_new_tokens=220):
