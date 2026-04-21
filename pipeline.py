@@ -2,6 +2,7 @@ from collections import defaultdict
 
 from tqdm.auto import tqdm
 
+from detection.sam2_detector import Sam2Detector
 from detection.sam3_detector import Sam3Detector
 from tracking.tracker import MultiObjectTracker
 from tracking.appearance_memory import TrackMemoryBank
@@ -137,7 +138,19 @@ def run_pipeline(args):
     # 1) modules
     sampler = FrameSampler(target_fps=args.fps)
     object_backend = str(getattr(args, "object_backend", "yolo")).strip().lower()
-    if object_backend == "sam3":
+    if object_backend == "sam2":
+        object_source = Sam2Detector(
+            model_id=getattr(args, "sam2_model", "facebook/sam2.1-hiera-large"),
+            yolo_weights=args.yolo,
+            conf=args.min_conf,
+            mask_threshold=getattr(args, "sam2_mask_threshold", 0.5),
+            classes=object_labels,
+            device=getattr(args, "device", "auto"),
+            track_iou=getattr(args, "sam2_track_iou", 0.3),
+            track_ttl=getattr(args, "sam2_track_ttl", 12),
+        )
+        object_source_missing = list(getattr(object_source, "missing_classes", []))
+    elif object_backend == "sam3":
         object_source = Sam3Detector(
             model_id=getattr(args, "sam3_model", "facebook/sam3"),
             conf=args.min_conf,
@@ -381,6 +394,10 @@ def run_pipeline(args):
             "long_summary_sec": getattr(args, "long_summary_sec", 60.0),
             "tracker": args.tracker,
             "object_backend": object_backend,
+            "sam2_model": getattr(args, "sam2_model", None) if object_backend == "sam2" else None,
+            "sam2_mask_threshold": getattr(args, "sam2_mask_threshold", None) if object_backend == "sam2" else None,
+            "sam2_track_iou": getattr(args, "sam2_track_iou", None) if object_backend == "sam2" else None,
+            "sam2_track_ttl": getattr(args, "sam2_track_ttl", None) if object_backend == "sam2" else None,
             "sam3_model": getattr(args, "sam3_model", None) if object_backend == "sam3" else None,
             "sam3_mask_threshold": getattr(args, "sam3_mask_threshold", None) if object_backend == "sam3" else None,
             "sam3_track_iou": getattr(args, "sam3_track_iou", None) if object_backend == "sam3" else None,

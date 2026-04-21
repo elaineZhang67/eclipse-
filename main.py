@@ -16,8 +16,35 @@ def parse_args():
         "--object_backend",
         type=str,
         default="yolo",
-        choices=["yolo", "sam3"],
-        help="object detection backend: yolo uses YOLO tracking, sam3 uses SAM3 image segmentation prompts",
+        choices=["yolo", "sam2", "sam3"],
+        help=(
+            "object detection backend: yolo uses YOLO tracking, sam2 uses YOLO proposals + "
+            "SAM2 box-prompt refinement, sam3 uses SAM3 text-prompt segmentation"
+        ),
+    )
+    p.add_argument(
+        "--sam2_model",
+        type=str,
+        default="facebook/sam2.1-hiera-large",
+        help="SAM2 model id used when --object_backend sam2",
+    )
+    p.add_argument(
+        "--sam2_mask_threshold",
+        type=float,
+        default=0.5,
+        help="mask threshold used when --object_backend sam2",
+    )
+    p.add_argument(
+        "--sam2_track_iou",
+        type=float,
+        default=0.3,
+        help="IoU threshold for lightweight SAM2 object ID association",
+    )
+    p.add_argument(
+        "--sam2_track_ttl",
+        type=int,
+        default=12,
+        help="number of sampled frames to keep unmatched SAM2 object tracks alive",
     )
     p.add_argument(
         "--sam3_model",
