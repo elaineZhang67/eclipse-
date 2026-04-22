@@ -16,3 +16,6 @@ matplotlib
 seaborn
 streamlit
 Pillow
+fastapi
+uvicorn
+python-multipart

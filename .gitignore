@@ -4,3 +4,28 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Local datasets and large media artifacts
+VIRAT Ground Dataset/
+VIRAT Ground Dataset.zip
+datasets/
+data/
+outputs/
+backend_storage/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.pt
+*.pth
+*.safetensors
+
+# Runtime memory and duplicated local repo copies
+memory_store/*.db
+memory_store/*.db-*
+eclipse-/
+未命名/
+
+# Model/cache artifacts
+.cache/
+.hf_cache/
