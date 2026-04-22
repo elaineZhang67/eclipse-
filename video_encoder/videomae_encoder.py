@@ -1,9 +1,9 @@
 import torch
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file as load_safetensors_file
-from transformers import VideoMAEImageProcessor, VideoMAEForVideoClassification
+from transformers import VideoMAEConfig, VideoMAEImageProcessor, VideoMAEForVideoClassification
 
-from runtime.device import model_load_kwargs, resolve_device
+from runtime.device import default_torch_dtype, resolve_device
 
 
 def _load_videomae_state_dict(model_id):
@@ -58,14 +58,14 @@ def _convert_legacy_attention_bias_keys(state_dict):
 def _load_videomae_model(model_id, device):
     raw_state_dict = _load_videomae_state_dict(model_id)
     state_dict, compat_report = _convert_legacy_attention_bias_keys(raw_state_dict)
-    model, loading_info = VideoMAEForVideoClassification.from_pretrained(
-        model_id,
-        state_dict=state_dict,
-        output_loading_info=True,
-        **model_load_kwargs(device),
-    )
-    if device.type != "cuda":
-        model = model.to(device)
+    config = VideoMAEConfig.from_pretrained(model_id)
+    model = VideoMAEForVideoClassification(config)
+    incompatible = model.load_state_dict(state_dict, strict=False)
+    loading_info = {
+        "missing_keys": list(incompatible.missing_keys),
+        "unexpected_keys": list(incompatible.unexpected_keys),
+    }
+    model = model.to(device=device, dtype=default_torch_dtype(device))
     model.eval()
     model._compat_loading_info = loading_info
     model._compat_bias_report = compat_report
