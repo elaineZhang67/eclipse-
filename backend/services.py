@@ -1,5 +1,6 @@
 import uuid
 from functools import lru_cache
+import re
 from types import SimpleNamespace
 
 from backend.schemas import AskRequest, PipelineOptions, ProcessVideoRequest
@@ -7,6 +8,10 @@ from memory_store.sqlite_store import SurveillanceMemoryStore
 from pipeline import run_pipeline
 from retrieval.event_rag import EventRAG
 from summarization.qwen_summary import build_summarizer
+
+
+_TRACK_PATTERN = re.compile(r"\btrack\s+(\d+)\b", re.IGNORECASE)
+_PERSON_PATTERN = re.compile(r"\bperson\s+\d+\b", re.IGNORECASE)
 
 
 def _model_dump(model):
@@ -50,6 +55,57 @@ def _build_pipeline_args(video_path, camera_id, run_id, options):
         }
     )
     return SimpleNamespace(**payload)
+
+
+def _contains_pronoun(question):
+    lowered = " " + str(question).lower().strip() + " "
+    pronouns = [" he ", " she ", " they ", " them ", " him ", " her ", " that person ", " this person "]
+    return any(token in lowered for token in pronouns)
+
+
+def _question_has_explicit_identity(question):
+    return bool(_TRACK_PATTERN.search(str(question)) or _PERSON_PATTERN.search(str(question)))
+
+
+def _extract_track_refs_from_docs(documents):
+    refs = []
+    for doc in documents or []:
+        track_id = doc.get("track_id")
+        if track_id is None:
+            continue
+        display_name = doc.get("display_name")
+        if display_name:
+            refs.append("{name} (track {track_id})".format(name=display_name, track_id=track_id))
+        else:
+            refs.append("track {track_id}".format(track_id=track_id))
+    deduped = []
+    seen = set()
+    for ref in refs:
+        if ref in seen:
+            continue
+        deduped.append(ref)
+        seen.add(ref)
+    return deduped
+
+
+def _resolve_followup_question(question, history):
+    if not _contains_pronoun(question) or _question_has_explicit_identity(question):
+        return question
+
+    for item in reversed(history or []):
+        if item.get("role") != "assistant":
+            continue
+        metadata = item.get("metadata") or {}
+        refs = _extract_track_refs_from_docs(metadata.get("retrieved_context", []))
+        if refs:
+            return (
+                "{question}\n"
+                "Likely referent from prior turn: {track_refs}."
+            ).format(
+                question=question,
+                track_refs=", ".join(refs),
+            )
+    return question
 
 
 @lru_cache(maxsize=4)
@@ -181,11 +237,11 @@ class TimeframeQAService:
             start_sec=request.start_sec,
             end_sec=request.end_sec,
         )
-        retrieved = self.rag.retrieve(request.question, documents, top_k=request.top_k)
         history = self.store.load_messages(session_id, limit=request.history_turns)
+        resolved_question = _resolve_followup_question(request.question, history)
+        retrieved = self.rag.retrieve(resolved_question, documents, top_k=request.top_k)
 
         timeframe = None
-        resolved_question = request.question
         if request.start_sec is not None or request.end_sec is not None:
             timeframe = {"start_sec": request.start_sec, "end_sec": request.end_sec}
             resolved_question = (
@@ -193,7 +249,7 @@ class TimeframeQAService:
                 "Only answer using evidence that overlaps the requested timeframe: "
                 "{start_sec} to {end_sec} seconds."
             ).format(
-                question=request.question,
+                question=resolved_question,
                 start_sec=request.start_sec,
                 end_sec=request.end_sec,
             )
