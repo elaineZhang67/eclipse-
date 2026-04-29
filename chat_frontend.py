@@ -144,16 +144,106 @@ def _inject_css():
             max-width: 660px;
         }
         .top-actions {
-            background: rgba(255, 250, 241, 0.76);
-            border: 1px solid var(--line);
-            border-radius: 18px;
+            background:
+                linear-gradient(160deg, rgba(14, 26, 22, 0.96), rgba(22, 62, 47, 0.92));
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 24px;
+            box-shadow: 0 20px 52px rgba(14, 26, 22, 0.18);
             color: var(--ink);
-            font-size: 0.8rem;
+            min-width: 285px;
+            padding: 0.82rem;
+            text-align: left;
+            white-space: normal;
+        }
+        .hero-copy-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.48rem;
+            margin-top: 0.84rem;
+        }
+        .hero-pill {
+            background: rgba(255, 250, 241, 0.72);
+            border: 1px solid rgba(36, 54, 43, 0.11);
+            border-radius: 999px;
+            color: #304237;
+            font-size: 0.72rem;
             font-weight: 700;
-            line-height: 1.55;
-            padding: 0.72rem 0.86rem;
-            text-align: right;
-            white-space: nowrap;
+            padding: 0.28rem 0.62rem;
+        }
+        .hero-visual {
+            display: grid;
+            gap: 0.64rem;
+        }
+        .hero-screen {
+            background:
+                radial-gradient(circle at 18% 22%, rgba(247, 188, 92, 0.35), transparent 5.5rem),
+                linear-gradient(135deg, #172a23, #07100d);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 18px;
+            min-height: 142px;
+            overflow: hidden;
+            padding: 0.72rem;
+            position: relative;
+        }
+        .hero-screen::before {
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+            background-size: 18px 18px;
+            content: "";
+            inset: 0;
+            opacity: 0.7;
+            position: absolute;
+        }
+        .hero-screen::after {
+            border: 1px solid rgba(243, 197, 118, 0.55);
+            border-radius: 20px;
+            content: "";
+            height: 42px;
+            left: 34%;
+            position: absolute;
+            top: 38%;
+            width: 78px;
+        }
+        .scan-line {
+            background: linear-gradient(90deg, transparent, rgba(243, 197, 118, 0.9), transparent);
+            height: 2px;
+            left: 0.75rem;
+            position: absolute;
+            right: 0.75rem;
+            top: 52%;
+        }
+        .hero-screen-label {
+            background: rgba(255, 250, 241, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            color: #fff4d8;
+            display: inline-flex;
+            font-size: 0.68rem;
+            font-weight: 820;
+            letter-spacing: 0.06em;
+            padding: 0.25rem 0.52rem;
+            position: relative;
+            text-transform: uppercase;
+            z-index: 1;
+        }
+        .hero-answer {
+            background: rgba(255, 250, 241, 0.94);
+            border-radius: 16px;
+            color: #1d2b24;
+            font-size: 0.76rem;
+            font-weight: 720;
+            line-height: 1.36;
+            padding: 0.64rem 0.72rem;
+        }
+        .hero-answer span {
+            color: var(--green);
+            display: block;
+            font-size: 0.62rem;
+            font-weight: 820;
+            letter-spacing: 0.07em;
+            margin-bottom: 0.16rem;
+            text-transform: uppercase;
         }
         .section-title {
             color: var(--ink);
@@ -177,6 +267,99 @@ def _inject_css():
             font-size: 0.88rem;
             line-height: 1.55;
             margin: -0.2rem 0 0.85rem;
+        }
+        .studio-panel {
+            background:
+                radial-gradient(circle at 0% 0%, rgba(247, 188, 92, 0.24), transparent 17rem),
+                linear-gradient(160deg, rgba(255, 252, 246, 0.92), rgba(237, 247, 239, 0.78));
+            min-height: 610px;
+        }
+        .studio-heading {
+            align-items: start;
+            display: flex;
+            gap: 1rem;
+            justify-content: space-between;
+            margin-bottom: 0.9rem;
+        }
+        .studio-title {
+            color: var(--ink);
+            font-family: "Fraunces", Georgia, serif;
+            font-size: clamp(1.55rem, 2.4vw, 2.25rem);
+            font-weight: 760;
+            letter-spacing: -0.045em;
+            line-height: 1;
+            margin-bottom: 0.34rem;
+        }
+        .studio-badge {
+            background: #123d2f;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            color: #fff4d8;
+            flex: 0 0 auto;
+            font-size: 0.7rem;
+            font-weight: 820;
+            letter-spacing: 0.07em;
+            padding: 0.34rem 0.72rem;
+            text-transform: uppercase;
+        }
+        .upload-hero-card {
+            background:
+                linear-gradient(135deg, rgba(18, 61, 47, 0.96), rgba(22, 111, 80, 0.9));
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            border-radius: 24px;
+            color: #fff8e9;
+            margin: 0.92rem 0 1rem;
+            overflow: hidden;
+            padding: 1rem;
+            position: relative;
+        }
+        .upload-hero-card::after {
+            background:
+                radial-gradient(circle, rgba(247, 188, 92, 0.46), transparent 7rem);
+            content: "";
+            height: 12rem;
+            position: absolute;
+            right: -4rem;
+            top: -4.5rem;
+            width: 12rem;
+        }
+        .upload-hero-top {
+            align-items: center;
+            display: flex;
+            justify-content: space-between;
+            position: relative;
+            z-index: 1;
+        }
+        .upload-hero-title {
+            font-size: 0.92rem;
+            font-weight: 820;
+        }
+        .upload-hero-copy {
+            color: rgba(255, 248, 233, 0.72);
+            font-size: 0.78rem;
+            line-height: 1.45;
+            margin-top: 0.38rem;
+            max-width: 480px;
+            position: relative;
+            z-index: 1;
+        }
+        .upload-file-types {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.36rem;
+            margin-top: 0.8rem;
+            position: relative;
+            z-index: 1;
+        }
+        .file-chip {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 999px;
+            color: #fff8e9;
+            font-size: 0.68rem;
+            font-weight: 760;
+            padding: 0.24rem 0.5rem;
+            text-transform: uppercase;
         }
         .mini-card {
             background:
@@ -210,6 +393,114 @@ def _inject_css():
             font-weight: 780;
             margin-bottom: 0.24rem;
         }
+        .console-panel {
+            background:
+                linear-gradient(180deg, rgba(14, 26, 22, 0.96), rgba(17, 42, 33, 0.94));
+            border-color: rgba(255, 255, 255, 0.12);
+            color: #edf7f0;
+            min-height: 610px;
+        }
+        .console-panel .section-title,
+        .console-panel .flow-title {
+            color: #fff8e9;
+        }
+        .console-panel .panel-copy,
+        .console-panel .metric-label,
+        .console-panel .flow-copy,
+        .console-panel .detail-label,
+        .console-panel .detail-value {
+            color: #9eb5aa;
+        }
+        .console-topline {
+            align-items: center;
+            display: flex;
+            gap: 0.45rem;
+            justify-content: space-between;
+            margin-bottom: 0.85rem;
+        }
+        .console-lights {
+            display: flex;
+            gap: 0.3rem;
+        }
+        .console-light {
+            border-radius: 999px;
+            height: 0.58rem;
+            width: 0.58rem;
+        }
+        .console-light:nth-child(1) {
+            background: #f3c576;
+        }
+        .console-light:nth-child(2) {
+            background: #64b98a;
+        }
+        .console-light:nth-child(3) {
+            background: #7ca6b8;
+        }
+        .console-chip {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 999px;
+            color: #fff4d8;
+            font-size: 0.68rem;
+            font-weight: 760;
+            padding: 0.24rem 0.52rem;
+        }
+        .console-preview {
+            background:
+                radial-gradient(circle at 18% 28%, rgba(247, 188, 92, 0.18), transparent 7rem),
+                linear-gradient(135deg, #0a120f, #152b23);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 22px;
+            min-height: 168px;
+            overflow: hidden;
+            padding: 0.86rem;
+            position: relative;
+        }
+        .console-preview::before {
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+            background-size: 22px 22px;
+            content: "";
+            inset: 0;
+            position: absolute;
+        }
+        .object-box {
+            border: 1px solid rgba(243, 197, 118, 0.72);
+            border-radius: 18px;
+            color: #fff4d8;
+            font-size: 0.65rem;
+            font-weight: 820;
+            letter-spacing: 0.05em;
+            padding: 0.34rem;
+            position: absolute;
+            text-transform: uppercase;
+        }
+        .object-person {
+            height: 68px;
+            left: 17%;
+            top: 32%;
+            width: 54px;
+        }
+        .object-bag {
+            border-color: rgba(126, 189, 150, 0.74);
+            height: 42px;
+            right: 18%;
+            top: 48%;
+            width: 72px;
+        }
+        .console-caption {
+            background: rgba(255, 250, 241, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 16px;
+            bottom: 0.86rem;
+            color: #fff8e9;
+            font-size: 0.72rem;
+            font-weight: 760;
+            left: 0.86rem;
+            padding: 0.48rem 0.62rem;
+            position: absolute;
+        }
         .metric-strip {
             display: grid;
             gap: 0.62rem;
@@ -231,6 +522,13 @@ def _inject_css():
             font-size: 1.02rem;
             font-weight: 780;
             overflow-wrap: anywhere;
+        }
+        .console-panel .metric {
+            background: rgba(255, 255, 255, 0.07);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+        .console-panel .metric-value {
+            color: #fff8e9;
         }
         .metric-label {
             color: var(--muted);
@@ -254,12 +552,20 @@ def _inject_css():
             .top-actions {
                 margin-top: 0.35rem;
                 text-align: left;
+                min-width: 0;
             }
             .upload-grid {
                 grid-template-columns: 1fr;
             }
             .prompt-grid {
                 grid-template-columns: 1fr;
+            }
+            .studio-heading {
+                display: block;
+            }
+            .studio-badge {
+                display: inline-flex;
+                margin-top: 0.6rem;
             }
         }
         .status-row {
@@ -424,6 +730,10 @@ def _inject_css():
             grid-template-columns: 2.15rem minmax(0, 1fr);
             padding: 0.66rem 0.72rem;
         }
+        .console-panel .flow-step {
+            background: rgba(255, 255, 255, 0.065);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
         .flow-number {
             align-items: center;
             background: #123d2f;
@@ -446,6 +756,36 @@ def _inject_css():
             font-size: 0.74rem;
             line-height: 1.35;
             margin-top: 0.06rem;
+        }
+        .landing-band {
+            display: grid;
+            gap: 0.8rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-top: 1rem;
+        }
+        .landing-card {
+            background: rgba(255, 252, 246, 0.78);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            box-shadow: 0 10px 32px rgba(23, 36, 29, 0.055);
+            padding: 0.95rem;
+        }
+        .landing-card-title {
+            color: var(--ink);
+            font-size: 0.88rem;
+            font-weight: 820;
+            margin-bottom: 0.28rem;
+        }
+        .landing-card-copy {
+            color: var(--muted);
+            font-size: 0.78rem;
+            line-height: 1.48;
+        }
+        @media (max-width: 900px) {
+            .landing-band {
+                grid-template-columns: 1fr;
+            }
         }
         div[data-testid="stChatInput"] {
             border-top: 1px solid var(--line);
@@ -862,10 +1202,36 @@ def _render_messages(messages):
 def _render_upload(api_base, pipeline_device, track_backend, object_backend, summary_backend, llm_model):
     left, right = st.columns([1.15, 0.85], gap="large")
     with left:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">New Video</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel studio-panel">', unsafe_allow_html=True)
         st.markdown(
-            '<div class="panel-copy">Drop in any surveillance clip. The backend will run the full pipeline first, then the chat unlocks with grounded answers from that processed session.</div>',
+            """
+            <div class="studio-heading">
+              <div>
+                <div class="section-title">Upload Studio</div>
+                <div class="studio-title">Start a grounded video chat.</div>
+                <div class="panel-copy">Bring in any surveillance clip. Eclipse will process the full video first, then unlock a chat that answers from the session memory instead of guessing.</div>
+              </div>
+              <div class="studio-badge">Pipeline first</div>
+            </div>
+            <div class="upload-hero-card">
+              <div class="upload-hero-top">
+                <div class="upload-hero-title">Video intake</div>
+                <div class="file-chip">session bound</div>
+              </div>
+              <div class="upload-hero-copy">Each upload creates a clean chat history, stores the source clip, runs detection and summarization, then connects your questions to the processed evidence.</div>
+              <div class="upload-file-types">
+                <div class="file-chip">mp4</div>
+                <div class="file-chip">mov</div>
+                <div class="file-chip">avi</div>
+                <div class="file-chip">mkv</div>
+                <div class="file-chip">webm</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="section-title">Clip details</div>',
             unsafe_allow_html=True,
         )
         with st.form("upload_form", clear_on_submit=False):
@@ -920,9 +1286,22 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
     with right:
         st.markdown(
             """
-            <div class="panel">
-              <div class="section-title">Workspace</div>
+            <div class="panel console-panel">
+              <div class="console-topline">
+                <div class="console-lights">
+                  <div class="console-light"></div>
+                  <div class="console-light"></div>
+                  <div class="console-light"></div>
+                </div>
+                <div class="console-chip">live config</div>
+              </div>
+              <div class="section-title">Pipeline Console</div>
               <div class="panel-copy">Current runtime settings for the next upload.</div>
+              <div class="console-preview">
+                <div class="object-box object-person">person</div>
+                <div class="object-box object-bag">object</div>
+                <div class="console-caption">SAM3 tracks visual evidence before chat begins</div>
+              </div>
               <div class="metric-strip">
                 <div class="metric">
                   <div class="metric-value">{pipeline_device}</div>
@@ -994,6 +1373,26 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
             unsafe_allow_html=True,
         )
 
+    st.markdown(
+        """
+        <div class="landing-band">
+          <div class="landing-card">
+            <div class="landing-card-title">No premature answers</div>
+            <div class="landing-card-copy">The chat stays locked while the backend is processing, so responses are based on completed pipeline artifacts.</div>
+          </div>
+          <div class="landing-card">
+            <div class="landing-card-title">Session memory</div>
+            <div class="landing-card-copy">Every video becomes a reusable chat session in the left sidebar, with its own history and indexed evidence.</div>
+          </div>
+          <div class="landing-card">
+            <div class="landing-card-title">Evidence-first QA</div>
+            <div class="landing-card-copy">Questions retrieve relevant events and summaries from the processed video before the answer model responds.</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def main():
     st.set_page_config(page_title="Video Chat", layout="wide")
@@ -1020,10 +1419,23 @@ def main():
         <div class="topbar">
           <div>
             <div class="kicker">Eclipse Video Intelligence</div>
-            <div class="title">Ask your video like a chat.</div>
+            <div class="title">Turn surveillance video into a searchable conversation.</div>
             <div class="muted">Upload a clip, wait for the pipeline to finish, then ask grounded questions about what happened.</div>
+            <div class="hero-copy-row">
+              <div class="hero-pill">SAM3 visual grounding</div>
+              <div class="hero-pill">Gemma4 video summaries</div>
+              <div class="hero-pill">Chat history per session</div>
+            </div>
           </div>
-          <div class="top-actions">Pipeline-gated answers<br>Session-aware memory</div>
+          <div class="top-actions">
+            <div class="hero-visual">
+              <div class="hero-screen">
+                <div class="hero-screen-label">processing complete</div>
+                <div class="scan-line"></div>
+              </div>
+              <div class="hero-answer"><span>Answer preview</span>"A person enters near the doorway, pauses by the object, then leaves the scene."</div>
+            </div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
