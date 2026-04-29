@@ -1014,6 +1014,7 @@ def _upload_video(
     pipeline_device,
     track_backend,
     object_backend,
+    object_labels,
     summary_backend,
     llm_model,
 ):
@@ -1023,6 +1024,9 @@ def _upload_video(
         "object_backend": object_backend,
         "summary_backend": summary_backend,
     }
+    object_labels = str(object_labels or "").strip()
+    if object_labels:
+        options["object_labels"] = object_labels
     if llm_model:
         options["llm_model"] = llm_model
 
@@ -1238,6 +1242,13 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
             uploaded_file = st.file_uploader("Video", type=VIDEO_TYPES)
             camera_id = st.text_input("Camera", value="camera_1")
             label = st.text_input("Label", value="")
+            object_labels = st.text_area(
+                "Objects to monitor",
+                value=st.session_state.get("object_labels", ""),
+                placeholder="hard hat, safety vest, forklift, pallet, box",
+                help="Comma-separated scene-specific objects. Leave blank to use the selected environment preset.",
+            )
+            st.session_state["object_labels"] = object_labels
             submitted = st.form_submit_button("Upload and process", use_container_width=True)
 
         if submitted:
@@ -1253,6 +1264,7 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
                         pipeline_device=pipeline_device,
                         track_backend=track_backend,
                         object_backend=object_backend,
+                        object_labels=object_labels,
                         summary_backend=summary_backend,
                         llm_model=llm_model.strip(),
                 )
@@ -1403,6 +1415,7 @@ def main():
         "pipeline_device": "auto",
         "track_backend": DEFAULT_TRACK_BACKEND,
         "object_backend": DEFAULT_OBJECT_BACKEND,
+        "object_labels": "",
         "summary_backend": "vl",
         "llm_model": DEFAULT_PIPELINE_LLM_MODEL,
         "answer_backend": "text",

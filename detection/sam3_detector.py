@@ -1,6 +1,7 @@
 import os
 
 import cv2
+import numpy as np
 import torch
 
 from runtime.device import default_torch_dtype, resolve_device
@@ -33,6 +34,19 @@ def _move_to_device(batch, device, float_dtype=None):
         else:
             moved[key] = value
     return moved
+
+
+def _to_numpy_mask(mask):
+    if mask is None:
+        return None
+    if torch.is_tensor(mask):
+        mask = mask.detach().cpu().numpy()
+    array = np.asarray(mask)
+    if array.ndim > 2:
+        array = np.squeeze(array)
+    if array.ndim != 2:
+        return None
+    return array.astype(bool)
 
 
 def _hub_token():
@@ -182,20 +196,32 @@ class Sam3Detector:
 
             boxes = results.get("boxes")
             scores = results.get("scores")
+            masks = results.get("masks")
+            if masks is None:
+                masks = results.get("segmentation")
+            if masks is None:
+                masks = results.get("segments")
             if boxes is None or scores is None:
                 continue
 
             boxes = boxes.detach().cpu().tolist() if torch.is_tensor(boxes) else boxes
             scores = scores.detach().cpu().tolist() if torch.is_tensor(scores) else scores
-            for box, score in zip(boxes, scores):
-                detections.append(
-                    {
-                        "xyxy": [float(v) for v in box],
-                        "conf": float(score),
-                        "class_id": None,
-                        "label": label,
-                    }
-                )
+            if torch.is_tensor(masks):
+                masks = list(masks.detach().cpu())
+            elif masks is None:
+                masks = [None] * len(boxes)
+
+            for idx, (box, score) in enumerate(zip(boxes, scores)):
+                item = {
+                    "xyxy": [float(v) for v in box],
+                    "conf": float(score),
+                    "class_id": None,
+                    "label": label,
+                }
+                mask = _to_numpy_mask(masks[idx]) if idx < len(masks) else None
+                if mask is not None:
+                    item["mask"] = mask
+                detections.append(item)
 
         return detections
 

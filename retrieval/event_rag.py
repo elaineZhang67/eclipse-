@@ -1,9 +1,122 @@
+import os
 import re
 from collections import Counter
+from functools import lru_cache
+
+import numpy as np
+
+
+_QUERY_EXPANSIONS = {
+    "pick": ["picked", "pickup", "grab", "grabbed", "take", "took", "associated", "attached", "near"],
+    "picked": ["pick", "pickup", "grabbed", "took", "associated", "attached"],
+    "grab": ["pick", "picked", "take", "took", "associated", "attached"],
+    "hold": ["held", "holding", "carry", "carried", "associated", "attached"],
+    "carrying": ["carry", "held", "holding", "associated", "attached"],
+    "near": ["nearby", "close", "interaction", "associated"],
+    "with": ["associated", "attached", "near"],
+    "bag": ["backpack", "handbag", "suitcase"],
+    "phone": ["cell", "cellphone", "mobile"],
+    "leave": ["left", "last", "exit", "exited"],
+    "enter": ["entered", "entry", "arrive", "arrived"],
+}
+
+
+@lru_cache(maxsize=1)
+def _embedding_model():
+    enabled = str(os.environ.get("ECLIPSE_ENABLE_EMBEDDING_RAG", "")).strip().lower()
+    if enabled not in {"1", "true", "yes", "on"}:
+        return None
+
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception:
+        return None
+
+    try:
+        return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+    except Exception:
+        return None
 
 
 def _tokenize(text):
     return re.findall(r"[a-z0-9]+", str(text).lower())
+
+
+def _expanded_query_text(text):
+    tokens = _tokenize(text)
+    expanded = list(tokens)
+    for token in tokens:
+        expanded.extend(_QUERY_EXPANSIONS.get(token, []))
+    return " ".join(expanded)
+
+
+def _extract_track_ids(text):
+    return {int(item) for item in re.findall(r"\btrack\s+(\d+)\b", str(text).lower())}
+
+
+def _extract_time_mentions(text):
+    return [float(item) for item in re.findall(r"\b(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds)\b", str(text).lower())]
+
+
+def _document_structural_boost(question, document):
+    question_tokens = set(_tokenize(question))
+    doc_tokens = set(_tokenize(document.get("text", "")))
+    boost = 0.0
+
+    for track_id in _extract_track_ids(question):
+        if document.get("track_id") == track_id or "track {track_id}".format(track_id=track_id) in document.get("text", "").lower():
+            boost += 2.0
+
+    for t_sec in _extract_time_mentions(question):
+        start = document.get("start")
+        end = document.get("end")
+        if start is not None and end is not None and float(start) <= t_sec <= float(end):
+            boost += 1.5
+
+    object_like_tokens = {
+        token
+        for token in question_tokens
+        if token in doc_tokens and token not in {"who", "what", "when", "where", "which", "did", "the", "a", "an"}
+    }
+    boost += min(1.5, 0.25 * len(object_like_tokens))
+
+    if document.get("type") == "track" and any(token in question_tokens for token in {"who", "person", "track"}):
+        boost += 0.5
+    if document.get("type") == "window" and any(token in question_tokens for token in {"when", "time", "timestamp"}):
+        boost += 0.5
+    if document.get("type") == "interval":
+        boost += 0.25
+
+    return boost
+
+
+def _semantic_scores(question, documents):
+    model = _embedding_model()
+    if model is None or not documents:
+        return {}
+
+    texts = [document.get("text", "") for document in documents]
+    try:
+        doc_embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        query_embedding = model.encode([question], normalize_embeddings=True, show_progress_bar=False)[0]
+    except Exception:
+        return {}
+
+    doc_embeddings = np.asarray(doc_embeddings, dtype=np.float32)
+    query_embedding = np.asarray(query_embedding, dtype=np.float32)
+
+    try:
+        import faiss
+
+        index = faiss.IndexFlatIP(doc_embeddings.shape[1])
+        index.add(doc_embeddings)
+        scores, indices = index.search(query_embedding.reshape(1, -1), len(documents))
+        return {int(index): float(score) for index, score in zip(indices[0], scores[0]) if int(index) >= 0}
+    except Exception:
+        return {
+            idx: float(np.dot(query_embedding, doc_embedding))
+            for idx, doc_embedding in enumerate(doc_embeddings)
+        }
 
 
 def _prefix_text(source_meta):
@@ -98,7 +211,7 @@ def _format_window_event(event, track_payload, alias_map):
             time=event.get("time"),
         )
 
-    if event.get("type") == "attributed_objects":
+    if event.get("type") in {"attributed_objects", "near_objects"}:
         track_id = int(event.get("track_id"))
         payload = track_payload.get(track_id, {})
         objects = []
@@ -106,15 +219,27 @@ def _format_window_event(event, track_payload, alias_map):
             if isinstance(item, dict):
                 label = item.get("label")
                 object_track_id = item.get("object_track_id")
+                confidence = item.get("confidence")
+                suffix = ""
+                if confidence is not None:
+                    suffix = " confidence {confidence}".format(confidence=confidence)
                 if label and object_track_id is not None:
-                    objects.append("{label} object track {object_track_id}".format(label=label, object_track_id=object_track_id))
+                    objects.append(
+                        "{label} object track {object_track_id}{suffix}".format(
+                            label=label,
+                            object_track_id=object_track_id,
+                            suffix=suffix,
+                        )
+                    )
                 elif label:
-                    objects.append(label)
+                    objects.append("{label}{suffix}".format(label=label, suffix=suffix))
             elif item:
                 objects.append(str(item))
         if objects:
-            return "{track_ref} was associated with {objects}".format(
+            verb = "was associated with" if event.get("type") == "attributed_objects" else "was near"
+            return "{track_ref} {verb} {objects}".format(
                 track_ref=_track_ref(track_id, payload, alias_map),
+                verb=verb,
                 objects=", ".join(objects),
             )
 
@@ -278,16 +403,23 @@ class EventRAG:
         return documents
 
     def retrieve(self, question, documents, top_k=4):
-        query_counts = Counter(_tokenize(question))
+        expanded_question = "{question} {expanded}".format(
+            question=question,
+            expanded=_expanded_query_text(question),
+        )
+        query_counts = Counter(_tokenize(expanded_question))
+        semantic_scores = _semantic_scores(expanded_question, documents)
         scored = []
-        for document in documents:
+        for idx, document in enumerate(documents):
             doc_counts = Counter(_tokenize(document["text"]))
             overlap = sum(min(query_counts[token], doc_counts[token]) for token in query_counts)
-            if overlap <= 0:
+            semantic = semantic_scores.get(idx, 0.0)
+            boost = _document_structural_boost(question, document)
+            if overlap <= 0 and semantic <= 0.0 and boost <= 0.0:
                 continue
             score = float(overlap)
-            if document.get("type") == "interval":
-                score += 0.25
+            score += 3.0 * max(0.0, float(semantic))
+            score += boost
             scored.append((score, document))
 
         scored.sort(key=lambda item: (-item[0], item[1].get("start") or 0.0))

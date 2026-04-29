@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 .venv/
+.conda-env/
+.conda/
+.demo/
 __pycache__/
 *.pyc
 *.pyo

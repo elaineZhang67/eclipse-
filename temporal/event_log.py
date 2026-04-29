@@ -2,6 +2,8 @@ import math
 from collections import defaultdict
 from itertools import combinations
 
+import numpy as np
+
 
 def _center(box):
     x1, y1, x2, y2 = box
@@ -23,6 +25,23 @@ def _area(box):
 def _center_in_box(point, box):
     x, y = point
     return box[0] <= x <= box[2] and box[1] <= y <= box[3]
+
+
+def _upper_body_box(box):
+    x1, y1, x2, y2 = box
+    return [x1, y1, x2, y1 + 0.55 * (y2 - y1)]
+
+
+def _expanded_box(box, scale_x=1.15, scale_y=1.1):
+    cx, cy = _center(box)
+    width = _width(box) * scale_x
+    height = _height(box) * scale_y
+    return [
+        cx - 0.5 * width,
+        cy - 0.5 * height,
+        cx + 0.5 * width,
+        cy + 0.5 * height,
+    ]
 
 
 def _union_box(box_a, box_b):
@@ -61,6 +80,23 @@ def _normalized_center_distance(box_a, box_b):
     return distance / scale
 
 
+def _mask_overlap_fraction(obj, person):
+    obj_mask = obj.get("mask")
+    person_mask = person.get("mask")
+    if obj_mask is None or person_mask is None:
+        return 0.0
+
+    obj_mask = np.asarray(obj_mask, dtype=bool)
+    person_mask = np.asarray(person_mask, dtype=bool)
+    if obj_mask.shape != person_mask.shape or obj_mask.size == 0:
+        return 0.0
+
+    obj_area = float(obj_mask.sum())
+    if obj_area <= 0.0:
+        return 0.0
+    return float(np.logical_and(obj_mask, person_mask).sum()) / obj_area
+
+
 class SceneEventBuilder:
     def __init__(
         self,
@@ -68,11 +104,17 @@ class SceneEventBuilder:
         combine_iou=0.05,
         combine_dist=1.2,
         nearby_dist=2.5,
+        object_min_hits=3,
+        object_min_confidence=0.55,
+        object_near_confidence=0.28,
     ):
         self.window_sec = window_sec
         self.combine_iou = combine_iou
         self.combine_dist = combine_dist
         self.nearby_dist = nearby_dist
+        self.object_min_hits = max(1, int(object_min_hits))
+        self.object_min_confidence = min(1.0, max(0.0, float(object_min_confidence)))
+        self.object_near_confidence = min(self.object_min_confidence, max(0.0, float(object_near_confidence)))
         self.track_state = defaultdict(
             lambda: {
                 "first_seen": None,
@@ -91,7 +133,10 @@ class SceneEventBuilder:
                 "last_seen": None,
                 "hits": 0,
                 "owner_counts": defaultdict(int),
+                "candidate_owner_counts": defaultdict(int),
+                "candidate_owner_confidence": defaultdict(float),
                 "last_owner_track_id": None,
+                "last_candidate_owner_track_id": None,
             }
         )
         self.windows = {}
@@ -117,13 +162,25 @@ class SceneEventBuilder:
         window["events"].append(event)
         return True
 
-    def _assignment_score(self, person_box, obj_box, obj_center):
+    def _assignment_score(self, person, obj, obj_center):
+        person_box = person["xyxy"]
+        obj_box = obj["xyxy"]
+        upper_box = _upper_body_box(person_box)
+        expanded_person_box = _expanded_box(person_box)
+        mask_overlap = _mask_overlap_fraction(obj, person)
+
         score = 0.0
-        if _center_in_box(obj_center, person_box):
-            score += 3.0
+        if _center_in_box(obj_center, upper_box):
+            score += 2.75
+        elif _center_in_box(obj_center, person_box):
+            score += 1.75
+        elif _center_in_box(obj_center, expanded_person_box):
+            score += 0.75
         score += 2.0 * _iou(obj_box, person_box)
+        score += 2.0 * mask_overlap
         score += max(0.0, 1.5 - _normalized_center_distance(obj_box, person_box))
-        return score
+        confidence = min(1.0, max(0.0, score / 5.25))
+        return score, confidence, mask_overlap
 
     def _record_object_presence(self, t_sec, object_tracks):
         for obj in object_tracks:
@@ -146,30 +203,64 @@ class SceneEventBuilder:
             object_id = obj.get("track_id")
             best_tid = None
             best_score = float("-inf")
+            best_confidence = 0.0
+            best_mask_overlap = 0.0
             scores = {}
+            confidences = {}
+            mask_overlaps = {}
 
             for person in person_tracks:
-                person_box = person["xyxy"]
-                score = self._assignment_score(person_box, obj_box, obj_center)
+                score, confidence, mask_overlap = self._assignment_score(person, obj, obj_center)
                 scores[person["track_id"]] = score
+                confidences[person["track_id"]] = confidence
+                mask_overlaps[person["track_id"]] = mask_overlap
 
                 if score > best_score:
                     best_score = score
                     best_tid = person["track_id"]
+                    best_confidence = confidence
+                    best_mask_overlap = mask_overlap
 
             if object_id is not None:
-                sticky_owner = self.object_state[object_id]["last_owner_track_id"]
+                sticky_owner = (
+                    self.object_state[object_id]["last_owner_track_id"]
+                    or self.object_state[object_id]["last_candidate_owner_track_id"]
+                )
                 sticky_score = scores.get(sticky_owner)
                 if sticky_score is not None and sticky_score >= max(0.5, best_score - 0.25):
                     best_tid = sticky_owner
                     best_score = sticky_score
+                    best_confidence = confidences.get(sticky_owner, best_confidence)
+                    best_mask_overlap = mask_overlaps.get(sticky_owner, best_mask_overlap)
 
-            if best_tid is not None and best_score >= 0.5:
-                assigned[best_tid].append(obj)
+            if best_tid is not None and best_confidence >= self.object_near_confidence:
+                state = self.object_state[object_id] if object_id is not None else None
+                stable_hits = 1
                 if object_id is not None:
-                    state = self.object_state[object_id]
-                    state["owner_counts"][best_tid] += 1
-                    state["last_owner_track_id"] = best_tid
+                    state["candidate_owner_counts"][best_tid] += 1
+                    state["candidate_owner_confidence"][best_tid] += float(best_confidence)
+                    state["last_candidate_owner_track_id"] = best_tid
+                    stable_hits = int(state["candidate_owner_counts"][best_tid])
+
+                kind = "candidate"
+                if best_confidence < self.object_min_confidence:
+                    kind = "near"
+                if stable_hits >= self.object_min_hits and best_confidence >= self.object_min_confidence:
+                    kind = "attached"
+                    if object_id is not None:
+                        state["owner_counts"][best_tid] += 1
+                        state["last_owner_track_id"] = best_tid
+
+                assigned[best_tid].append(
+                    {
+                        **obj,
+                        "attribution_kind": kind,
+                        "attribution_confidence": round(float(best_confidence), 3),
+                        "attribution_score": round(float(best_score), 3),
+                        "attribution_hits": int(stable_hits),
+                        "mask_overlap": round(float(best_mask_overlap), 3),
+                    }
+                )
         return assigned
 
     def _record_track_presence(self, t_sec, person_tracks):
@@ -195,7 +286,16 @@ class SceneEventBuilder:
 
     def _record_object_events(self, window, assignments):
         for tid, objects in assignments.items():
+            objects = [
+                obj
+                for obj in objects
+                if obj.get("attribution_kind") in {"attached", "near"}
+            ]
+            if not objects:
+                continue
             for obj in objects:
+                if obj.get("attribution_kind") != "attached":
+                    continue
                 label = obj.get("label", "unknown")
                 self.track_state[tid]["object_label_hits"][label] += 1
                 object_id = obj.get("track_id")
@@ -216,22 +316,36 @@ class SceneEventBuilder:
                     {
                         "object_track_id": None if object_id is None else int(object_id),
                         "label": obj.get("label", "unknown"),
+                        "kind": obj.get("attribution_kind", "near"),
+                        "confidence": obj.get("attribution_confidence"),
+                        "stable_hits": obj.get("attribution_hits"),
+                        "mask_overlap": obj.get("mask_overlap"),
                     }
                 )
 
+            attached_objects = [
+                obj for obj in event_objects if obj.get("kind") == "attached"
+            ]
+            near_objects = [
+                obj for obj in event_objects if obj.get("kind") != "attached"
+            ]
+            if not attached_objects and not near_objects:
+                continue
+
+            event_type = "attributed_objects" if attached_objects else "near_objects"
             self._add_event(
                 window,
                 {
-                    "type": "attributed_objects",
+                    "type": event_type,
                     "track_id": tid,
-                    "objects": event_objects,
+                    "objects": attached_objects or near_objects,
                 },
                 (
-                    "objects",
+                    event_type,
                     tid,
                     tuple(
-                        (obj["label"], obj["object_track_id"])
-                        for obj in event_objects
+                        (obj["label"], obj["object_track_id"], obj.get("kind"))
+                        for obj in (attached_objects or near_objects)
                     ),
                 ),
             )
@@ -285,6 +399,7 @@ class SceneEventBuilder:
         assignments = self._assign_objects(person_tracks, object_tracks)
         self._record_object_events(window, assignments)
         self._record_interactions(window, person_tracks)
+        return assignments
 
     def finalize(self):
         event_log = []
@@ -338,6 +453,7 @@ class SceneEventBuilder:
                         if object_state.get("last_seen") is None
                         else round(object_state["last_seen"], 2),
                         "hits": int(state["object_track_hits"].get(object_id, 0)),
+                        "candidate_hits": int(object_state.get("candidate_owner_counts", {}).get(tid, 0)),
                     }
                 )
 

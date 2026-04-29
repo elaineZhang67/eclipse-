@@ -16,6 +16,7 @@ from temporal.interval_summary import SceneIntervalBuilder
 from retrieval.event_rag import EventRAG
 from summarization.qwen_summary import build_summarizer
 from summarization.visual_evidence import VisualEvidenceCollector
+from summarization.debug_evidence import DebugEvidenceWriter, default_debug_evidence_dir
 from runtime.object_preset import describe_environment, resolve_object_labels
 
 
@@ -239,10 +240,22 @@ def run_pipeline(args):
         combine_iou=args.interaction_combine_iou,
         combine_dist=args.interaction_combine_dist,
         nearby_dist=args.interaction_nearby_dist,
+        object_min_hits=getattr(args, "object_attribution_min_hits", 3),
+        object_min_confidence=getattr(args, "object_attribution_min_confidence", 0.55),
+        object_near_confidence=getattr(args, "object_attribution_near_confidence", 0.28),
     )
     interval_builder = SceneIntervalBuilder(interval_sec=getattr(args, "long_summary_sec", 60.0))
     rag_builder = EventRAG()
     disable_progress = bool(getattr(args, "disable_progress", False))
+    debug_evidence = None
+    if bool(getattr(args, "debug_evidence", True)):
+        debug_evidence = DebugEvidenceWriter(
+            output_dir=getattr(args, "debug_evidence_dir", None)
+            or default_debug_evidence_dir(getattr(args, "run_id", None)),
+            stride_sec=getattr(args, "debug_evidence_stride_sec", 2.0),
+            max_frames=getattr(args, "debug_evidence_max_frames", 80),
+            enabled=True,
+        )
     summarizer = None
     visual_evidence = None
     if args.use_llm:
@@ -324,7 +337,16 @@ def run_pipeline(args):
                 per_track_probs[tid].append((t_start, t_end, label, float(conf)))
                 clip_count += 1
 
-            event_builder.update(t_sec, person_tracks, object_tracks)
+            assignments = event_builder.update(t_sec, person_tracks, object_tracks)
+            if debug_evidence is not None:
+                debug_evidence.update(
+                    frame_bgr,
+                    t_sec=t_sec,
+                    person_tracks=person_tracks,
+                    object_tracks=object_tracks,
+                    assignments=assignments,
+                    window_idx=int(t_sec // args.event_window_sec),
+                )
             frame_progress.update(1)
             frame_progress.set_postfix(
                 time_s=round(float(t_sec), 1),
@@ -334,6 +356,7 @@ def run_pipeline(args):
             )
     finally:
         frame_progress.close()
+    debug_evidence_output = debug_evidence.close() if debug_evidence is not None else None
 
     # (D) temporal aggregation + segmentation + optional LLM
     event_log, per_track_metadata = event_builder.finalize()
@@ -461,6 +484,9 @@ def run_pipeline(args):
             "environment": describe_environment(getattr(args, "environment", "generic")),
             "summary_backend": getattr(args, "summary_backend", "text"),
             "llm_model": getattr(summarizer, "model_id", None),
+            "object_attribution_min_hits": getattr(args, "object_attribution_min_hits", 3),
+            "object_attribution_min_confidence": getattr(args, "object_attribution_min_confidence", 0.55),
+            "object_attribution_near_confidence": getattr(args, "object_attribution_near_confidence", 0.28),
             "use_track_memory": bool(getattr(args, "use_track_memory", False)),
             "appearance_match_threshold": getattr(args, "appearance_match_threshold", 0.82),
             "appearance_memory_ttl_sec": getattr(args, "appearance_memory_ttl_sec", 8.0),
@@ -480,6 +506,7 @@ def run_pipeline(args):
         "tracks": track_outputs,
         "event_log": event_log,
         "interval_summaries": interval_outputs,
+        "debug_evidence": debug_evidence_output,
         "track_memory_bank": [] if track_memory_bank is None else track_memory_bank.export_bank(),
     }
     if summarizer is not None:

@@ -32,6 +32,9 @@ class PipelineOptions(BaseModel):
     environment: str = "generic"
     max_object_types: int = 5
     object_labels: Optional[str] = None
+    object_attribution_min_hits: int = 3
+    object_attribution_min_confidence: float = 0.55
+    object_attribution_near_confidence: float = 0.28
     event_window_sec: float = 5.0
     long_summary_sec: float = 60.0
     interaction_combine_iou: float = 0.05
@@ -49,6 +52,10 @@ class PipelineOptions(BaseModel):
     vl_track_gap_sec: float = 1.5
     vl_scene_gap_sec: float = 3.0
     disable_progress: bool = True
+    debug_evidence: bool = True
+    debug_evidence_dir: Optional[str] = None
+    debug_evidence_stride_sec: float = 2.0
+    debug_evidence_max_frames: int = 80
 
 
 class RegisterVideoRequest(BaseModel):
