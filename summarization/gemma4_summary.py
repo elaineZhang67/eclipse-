@@ -2,7 +2,6 @@ import tempfile
 from pathlib import Path
 
 import cv2
-import numpy as np
 import torch
 from transformers import AutoProcessor
 
@@ -11,41 +10,6 @@ from summarization.qwen_summary import QwenVLSummarizer, _move_to_device
 
 
 DEFAULT_GEMMA4_MODEL_ID = "google/gemma-4-E4B-it"
-DEFAULT_GEMMA4_MAX_PROMPT_CHARS = 12000
-DEFAULT_GEMMA4_IMAGE_LONG_EDGE = 384
-
-
-def _safe_rgb_image(image_rgb, max_long_edge):
-    image = np.asarray(image_rgb)
-    if image.ndim != 3 or image.shape[-1] != 3:
-        return None
-
-    height, width = image.shape[:2]
-    if height < 16 or width < 16:
-        return None
-
-    if image.dtype != np.uint8:
-        image = np.clip(image, 0, 255).astype(np.uint8)
-
-    max_long_edge = max(0, int(max_long_edge))
-    current_long_edge = max(height, width)
-    if max_long_edge > 0 and current_long_edge > max_long_edge:
-        scale = float(max_long_edge) / float(current_long_edge)
-        new_width = max(1, int(round(width * scale)))
-        new_height = max(1, int(round(height * scale)))
-        image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-
-    return np.ascontiguousarray(image)
-
-
-def _limit_prompt(prompt, max_chars):
-    max_chars = max(0, int(max_chars))
-    if not max_chars or len(prompt) <= max_chars:
-        return prompt
-    return (
-        prompt[:max_chars].rstrip()
-        + "\n\n[Structured context truncated to keep Gemma4 generation within GPU memory.]\n\nSummary:"
-    )
 
 
 def _load_gemma4_model(model_id, device):
@@ -89,17 +53,13 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
     def __init__(
         self,
         model_id=DEFAULT_GEMMA4_MODEL_ID,
-        max_track_images=1,
-        max_scene_images=1,
-        image_long_edge=DEFAULT_GEMMA4_IMAGE_LONG_EDGE,
-        max_prompt_chars=DEFAULT_GEMMA4_MAX_PROMPT_CHARS,
+        max_track_images=4,
+        max_scene_images=4,
         device="auto",
     ):
         self.model_id = model_id
         self.max_track_images = max(0, int(max_track_images))
         self.max_scene_images = max(0, int(max_scene_images))
-        self.image_long_edge = max(0, int(image_long_edge))
-        self.max_prompt_chars = max(0, int(max_prompt_chars))
         self.device = resolve_device(device)
         self.input_device = self.device
         self.processor = AutoProcessor.from_pretrained(model_id, padding_side="left")
@@ -107,12 +67,7 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
         self.model_dtype = next(self.model.parameters()).dtype
 
     def _generate(self, prompt, image_arrays=None, max_new_tokens=220):
-        prompt = _limit_prompt(prompt, self.max_prompt_chars)
-        image_arrays = [
-            image
-            for image in (_safe_rgb_image(item, self.image_long_edge) for item in list(image_arrays or []))
-            if image is not None
-        ]
+        image_arrays = list(image_arrays or [])
 
         with tempfile.TemporaryDirectory() as tmpdir_name:
             image_refs = []
@@ -155,17 +110,13 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
 
 def build_gemma4_summarizer(
     model_id=None,
-    max_track_images=1,
-    max_scene_images=1,
-    image_long_edge=DEFAULT_GEMMA4_IMAGE_LONG_EDGE,
-    max_prompt_chars=DEFAULT_GEMMA4_MAX_PROMPT_CHARS,
+    max_track_images=4,
+    max_scene_images=4,
     device="auto",
 ):
     return Gemma4VLSummarizer(
         model_id=model_id or DEFAULT_GEMMA4_MODEL_ID,
         max_track_images=max_track_images,
         max_scene_images=max_scene_images,
-        image_long_edge=image_long_edge,
-        max_prompt_chars=max_prompt_chars,
         device=device,
     )

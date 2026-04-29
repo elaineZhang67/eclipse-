@@ -1,7 +1,5 @@
-import gc
 from collections import defaultdict
 
-import torch
 from tqdm.auto import tqdm
 
 from detection.sam2_detector import Sam2Detector
@@ -54,29 +52,6 @@ def _build_tqdm(iterable=None, total=None, desc="", unit="it", disable=False):
         disable=disable,
         dynamic_ncols=True,
     )
-
-
-def _summary_backend_uses_visual_inputs(args):
-    return (
-        bool(getattr(args, "use_llm", False))
-        and str(getattr(args, "summary_backend", "text")).strip().lower() == "vl"
-    )
-
-
-def _drop_model_handles(*objects):
-    seen = set()
-    for obj in objects:
-        if obj is None or id(obj) in seen:
-            continue
-        seen.add(id(obj))
-        if hasattr(obj, "model"):
-            obj.model = None
-
-
-def _free_cuda_memory():
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
 
 
 def _track_order_key(item):
@@ -180,7 +155,6 @@ def run_pipeline(args):
     sampler = FrameSampler(target_fps=args.fps)
     object_backend = str(getattr(args, "object_backend", "sam3")).strip().lower()
     track_backend = str(getattr(args, "track_backend", "sam3")).strip().lower()
-    combined_sam3_detector = None
     if object_backend == "sam3" and track_backend == "sam3":
         combined_sam3_detector = Sam3Detector(
             model_id=getattr(args, "sam3_model", "facebook/sam3"),
@@ -271,15 +245,21 @@ def run_pipeline(args):
     disable_progress = bool(getattr(args, "disable_progress", False))
     summarizer = None
     visual_evidence = None
-    if _summary_backend_uses_visual_inputs(args):
-        visual_evidence = VisualEvidenceCollector(
-            max_track_images=getattr(args, "vl_max_track_images", 1),
-            max_scene_images=getattr(args, "vl_max_scene_images", 1),
-            track_gap_sec=getattr(args, "vl_track_gap_sec", 1.5),
-            scene_gap_sec=getattr(args, "vl_scene_gap_sec", 3.0),
-            track_long_edge=getattr(args, "vl_track_long_edge", 224),
-            scene_long_edge=getattr(args, "vl_scene_long_edge", 384),
+    if args.use_llm:
+        summarizer = build_summarizer(
+            backend=getattr(args, "summary_backend", "text"),
+            model_id=getattr(args, "llm_model", None),
+            max_track_images=getattr(args, "vl_max_track_images", 4),
+            max_scene_images=getattr(args, "vl_max_scene_images", 4),
+            device=getattr(args, "device", "auto"),
         )
+        if getattr(summarizer, "uses_visual_inputs", False):
+            visual_evidence = VisualEvidenceCollector(
+                max_track_images=getattr(args, "vl_max_track_images", 4),
+                max_scene_images=getattr(args, "vl_max_scene_images", 4),
+                track_gap_sec=getattr(args, "vl_track_gap_sec", 1.5),
+                scene_gap_sec=getattr(args, "vl_scene_gap_sec", 3.0),
+            )
 
     # state per track_id
     per_track_probs = defaultdict(list)   # tid -> list of (t_start, t_end, label, conf)
@@ -354,26 +334,8 @@ def run_pipeline(args):
             )
     finally:
         frame_progress.close()
-        if sampler.cap is not None:
-            sampler.cap.release()
 
     # (D) temporal aggregation + segmentation + optional LLM
-    if getattr(args, "use_llm", False):
-        _drop_model_handles(object_source, tracker, action_model, combined_sam3_detector)
-        object_source = None
-        tracker = None
-        action_model = None
-        combined_sam3_detector = None
-        _free_cuda_memory()
-        summarizer = build_summarizer(
-            backend=getattr(args, "summary_backend", "text"),
-            model_id=getattr(args, "llm_model", None),
-            max_track_images=getattr(args, "vl_max_track_images", 1),
-            max_scene_images=getattr(args, "vl_max_scene_images", 1),
-            vl_image_long_edge=getattr(args, "vl_scene_long_edge", 384),
-            device=getattr(args, "device", "auto"),
-        )
-
     event_log, per_track_metadata = event_builder.finalize()
     per_track_metadata = _merge_track_memory_metadata(
         per_track_metadata,

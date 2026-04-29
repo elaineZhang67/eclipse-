@@ -44,12 +44,10 @@ class PipelineOptions(BaseModel):
     use_llm: bool = True
     summary_backend: str = "vl"
     llm_model: Optional[str] = DEFAULT_PIPELINE_LLM_MODEL
-    vl_max_track_images: int = 1
-    vl_max_scene_images: int = 1
+    vl_max_track_images: int = 4
+    vl_max_scene_images: int = 4
     vl_track_gap_sec: float = 1.5
     vl_scene_gap_sec: float = 3.0
-    vl_track_long_edge: int = 224
-    vl_scene_long_edge: int = 384
     disable_progress: bool = True
 
 

@@ -149,12 +149,10 @@ def parse_args():
         default=None,
         help="HF model id for the summarizer; defaults depend on --summary_backend",
     )
-    p.add_argument("--vl_max_track_images", type=int, default=1, help="max sampled person crops to pass to the VL summarizer per track")
-    p.add_argument("--vl_max_scene_images", type=int, default=1, help="max sampled scene frames to pass to the VL summarizer")
+    p.add_argument("--vl_max_track_images", type=int, default=4, help="max sampled person crops to pass to the VL summarizer per track")
+    p.add_argument("--vl_max_scene_images", type=int, default=4, help="max sampled scene frames to pass to the VL summarizer")
     p.add_argument("--vl_track_gap_sec", type=float, default=1.5, help="minimum time gap between stored track crops for VL summarization")
     p.add_argument("--vl_scene_gap_sec", type=float, default=3.0, help="minimum time gap between stored scene frames for VL summarization")
-    p.add_argument("--vl_track_long_edge", type=int, default=224, help="max long edge for stored track crops used by VL summarization")
-    p.add_argument("--vl_scene_long_edge", type=int, default=384, help="max long edge for stored scene frames used by VL summarization")
     p.add_argument("--question", type=str, default=None, help="optional question to answer from the event log and long summaries")
     p.add_argument("--question_top_k", type=int, default=4, help="number of retrieved context chunks for QA")
     p.add_argument("--camera_id", type=str, default="camera_1", help="camera identifier for persistence and chat")
