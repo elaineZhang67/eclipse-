@@ -1,3 +1,5 @@
+import os
+
 import cv2
 import torch
 
@@ -31,6 +33,66 @@ def _move_to_device(batch, device, float_dtype=None):
         else:
             moved[key] = value
     return moved
+
+
+def _hub_token():
+    return os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+
+
+def _is_gated_repo_error(exc):
+    text = str(exc).lower()
+    return "403 forbidden" in text or "gated" in text or "public gated repositories" in text
+
+
+def _sam3_access_error(model_id, exc):
+    return RuntimeError(
+        "Could not load SAM3 model '{model_id}' from Hugging Face. "
+        "The model files are gated, so the runtime needs an HF_TOKEN/HUGGING_FACE_HUB_TOKEN "
+        "that has access to public gated repositories and has accepted the facebook/sam3 terms. "
+        "Original error: {error}".format(model_id=model_id, error=exc)
+    )
+
+
+def _load_sam3_processor(model_id, token):
+    from transformers import CLIPTokenizer, Sam3ImageProcessor, Sam3Processor
+
+    try:
+        return Sam3Processor.from_pretrained(model_id, token=token)
+    except OSError as exc:
+        first_error = exc
+
+    try:
+        image_processor = Sam3ImageProcessor()
+        tokenizer = CLIPTokenizer.from_pretrained(model_id, token=token)
+        return Sam3Processor(image_processor=image_processor, tokenizer=tokenizer)
+    except Exception as exc:
+        if _is_gated_repo_error(exc):
+            raise _sam3_access_error(model_id, exc) from exc
+        raise RuntimeError(
+            "Could not load SAM3 processor for '{model_id}'. The Hugging Face repo currently "
+            "ships processor_config.json, while some transformers builds still look for "
+            "preprocessor_config.json; the fallback processor construction also failed. "
+            "Original errors: {first_error}; {second_error}".format(
+                model_id=model_id,
+                first_error=first_error,
+                second_error=exc,
+            )
+        ) from exc
+
+
+def _load_sam3_model(model_cls, model_id, device, token):
+    try:
+        model = model_cls.from_pretrained(
+            model_id,
+            token=token,
+            torch_dtype=default_torch_dtype(device),
+        )
+    except Exception as exc:
+        if _is_gated_repo_error(exc):
+            raise _sam3_access_error(model_id, exc) from exc
+        raise
+
+    return model.to(device)
 
 
 class Sam3Detector:
@@ -69,11 +131,9 @@ class Sam3Detector:
             ) from exc
 
         self.image_cls = Image
-        self.processor = Sam3Processor.from_pretrained(model_id)
-        self.model = Sam3Model.from_pretrained(
-            model_id,
-            torch_dtype=default_torch_dtype(self.device),
-        ).to(self.device)
+        token = _hub_token()
+        self.processor = _load_sam3_processor(model_id, token)
+        self.model = _load_sam3_model(Sam3Model, model_id, self.device, token)
         self.model.eval()
         self.model_dtype = next(self.model.parameters()).dtype
 
