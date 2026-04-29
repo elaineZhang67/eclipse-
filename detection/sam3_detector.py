@@ -41,16 +41,35 @@ def _hub_token():
 
 def _is_gated_repo_error(exc):
     text = str(exc).lower()
-    return "403 forbidden" in text or "gated" in text or "public gated repositories" in text
+    return (
+        "403 forbidden" in text
+        or "gated" in text
+        or "public gated repositories" in text
+        or "couldn't connect to 'https://huggingface.co'" in text
+        or "could not connect to 'https://huggingface.co'" in text
+        or "couldn't find them in the cached files" in text
+    )
 
 
 def _sam3_access_error(model_id, exc):
     return RuntimeError(
         "Could not load SAM3 model '{model_id}' from Hugging Face. "
         "The model files are gated, so the runtime needs an HF_TOKEN/HUGGING_FACE_HUB_TOKEN "
-        "that has access to public gated repositories and has accepted the facebook/sam3 terms. "
+        "that has accepted the facebook/sam3 terms and has access to public gated repositories. "
+        "If you are using a fine-grained token, enable access to public gated repos in the token settings. "
         "Original error: {error}".format(model_id=model_id, error=exc)
     )
+
+
+def _check_sam3_hub_access(model_id, token):
+    if token:
+        try:
+            from huggingface_hub import hf_hub_download
+
+            hf_hub_download(model_id, "processor_config.json", token=token)
+        except Exception as exc:
+            if _is_gated_repo_error(exc):
+                raise _sam3_access_error(model_id, exc) from exc
 
 
 def _load_sam3_processor(model_id, token):
@@ -132,6 +151,7 @@ class Sam3Detector:
 
         self.image_cls = Image
         token = _hub_token()
+        _check_sam3_hub_access(model_id, token)
         self.processor = _load_sam3_processor(model_id, token)
         self.model = _load_sam3_model(Sam3Model, model_id, self.device, token)
         self.model.eval()
