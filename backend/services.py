@@ -3,11 +3,9 @@ from functools import lru_cache
 import re
 from types import SimpleNamespace
 
-from backend.schemas import AskRequest, PipelineOptions, ProcessVideoRequest
+from backend.schemas import AskRequest, ChatAskRequest, PipelineOptions, ProcessVideoRequest
 from memory_store.sqlite_store import SurveillanceMemoryStore
-from pipeline import run_pipeline
 from retrieval.event_rag import EventRAG
-from summarization.qwen_summary import build_summarizer
 
 
 _TRACK_PATTERN = re.compile(r"\btrack\s+(\d+)\b", re.IGNORECASE)
@@ -110,6 +108,8 @@ def _resolve_followup_question(question, history):
 
 @lru_cache(maxsize=4)
 def _cached_summarizer(backend, model_id, device):
+    from summarization.qwen_summary import build_summarizer
+
     return build_summarizer(
         backend=backend,
         model_id=model_id or None,
@@ -171,6 +171,8 @@ class PipelineJobService:
                 run_id=run_id,
                 options=options,
             )
+            from pipeline import run_pipeline
+
             results = run_pipeline(args)
             persisted_run_id = self.store.save_run(
                 results,
@@ -185,6 +187,7 @@ class PipelineJobService:
                 run_id=persisted_run_id,
                 error=None,
             )
+            return persisted_run_id
         except Exception as exc:
             self.store.update_processing_job(
                 job_id,
@@ -290,3 +293,60 @@ class TimeframeQAService:
             "video_id": request.video_id,
             "timeframe": timeframe,
         }
+
+
+class ChatSessionService:
+    def __init__(self, store):
+        self.store = store
+
+    def _attach_processing_job(self, session):
+        if session is None:
+            return None
+        payload = dict(session)
+        job_id = payload.get("job_id")
+        payload["processing_job"] = self.store.load_processing_job(job_id) if job_id else None
+        return payload
+
+    def load_session(self, session_id):
+        return self._attach_processing_job(self.store.load_chat_session(session_id))
+
+    def list_sessions(self, limit=50):
+        return [
+            self._attach_processing_job(session)
+            for session in self.store.list_chat_sessions(limit=limit)
+        ]
+
+    def load_messages(self, session_id, limit=50):
+        return self.store.load_messages(session_id, limit=limit)
+
+    def ask(self, session_id, request):
+        if isinstance(request, ChatAskRequest):
+            payload = _model_dump(request)
+        else:
+            payload = dict(request)
+
+        session = self.store.load_chat_session(session_id)
+        if session is None:
+            raise ValueError("Unknown session_id: {session_id}".format(session_id=session_id))
+        if session.get("status") != "completed" or not session.get("run_id"):
+            raise RuntimeError(
+                "Session is still processing. Current status: {status}".format(
+                    status=session.get("status", "unknown"),
+                )
+            )
+
+        ask_request = AskRequest(
+            question=payload["question"],
+            video_id=session.get("video_id"),
+            run_id=session.get("run_id"),
+            camera_id=session.get("camera_id"),
+            start_sec=payload.get("start_sec"),
+            end_sec=payload.get("end_sec"),
+            session_id=session_id,
+            top_k=payload.get("top_k", 4),
+            history_turns=payload.get("history_turns", 8),
+            answer_backend=payload.get("answer_backend", "text"),
+            answer_model=payload.get("answer_model"),
+            device=payload.get("device", "auto"),
+        )
+        return TimeframeQAService(self.store).ask(ask_request)

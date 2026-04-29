@@ -5,6 +5,9 @@ import uuid
 from datetime import datetime
 
 
+_UNSET = object()
+
+
 def _utc_now():
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
@@ -74,6 +77,24 @@ class SurveillanceMemoryStore:
                     run_id TEXT,
                     error TEXT,
                     config_json TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    video_id TEXT,
+                    job_id TEXT,
+                    run_id TEXT,
+                    camera_id TEXT NOT NULL,
+                    video_path TEXT,
+                    label TEXT,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    error TEXT,
+                    metadata_json TEXT NOT NULL
                 )
                 """
             )
@@ -385,6 +406,164 @@ class SurveillanceMemoryStore:
 
         items = self.list_runs(camera_id=camera_id, video_id=video_id, limit=limit)
         return [self.load_run(item["run_id"]) for item in items if item.get("run_id")]
+
+    def create_chat_session(
+        self,
+        camera_id,
+        session_id=None,
+        video_id=None,
+        job_id=None,
+        run_id=None,
+        video_path=None,
+        label=None,
+        status="uploaded",
+        error=None,
+        metadata=None,
+    ):
+        session_id = str(session_id or uuid.uuid4().hex[:12])
+        created_at = _utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO chat_sessions (
+                    session_id, video_id, job_id, run_id, camera_id, video_path, label,
+                    status, created_at, updated_at, error, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    video_id,
+                    job_id,
+                    run_id,
+                    camera_id,
+                    video_path,
+                    label,
+                    status,
+                    created_at,
+                    created_at,
+                    error,
+                    json.dumps(metadata or {}, ensure_ascii=True),
+                ),
+            )
+        return session_id
+
+    def update_chat_session(
+        self,
+        session_id,
+        video_id=_UNSET,
+        job_id=_UNSET,
+        run_id=_UNSET,
+        camera_id=_UNSET,
+        video_path=_UNSET,
+        label=_UNSET,
+        status=_UNSET,
+        error=_UNSET,
+        metadata=_UNSET,
+    ):
+        existing = self.load_chat_session(session_id)
+        if existing is None:
+            return None
+
+        next_metadata = existing.get("metadata", {})
+        if metadata is not _UNSET:
+            next_metadata = dict(next_metadata)
+            next_metadata.update(metadata or {})
+
+        values = {
+            "video_id": existing.get("video_id") if video_id is _UNSET else video_id,
+            "job_id": existing.get("job_id") if job_id is _UNSET else job_id,
+            "run_id": existing.get("run_id") if run_id is _UNSET else run_id,
+            "camera_id": existing.get("camera_id") if camera_id is _UNSET else camera_id,
+            "video_path": existing.get("video_path") if video_path is _UNSET else video_path,
+            "label": existing.get("label") if label is _UNSET else label,
+            "status": existing.get("status") if status is _UNSET else status,
+            "error": existing.get("error") if error is _UNSET else error,
+            "metadata": next_metadata,
+        }
+        updated_at = _utc_now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE chat_sessions
+                SET video_id = ?, job_id = ?, run_id = ?, camera_id = ?, video_path = ?,
+                    label = ?, status = ?, updated_at = ?, error = ?, metadata_json = ?
+                WHERE session_id = ?
+                """,
+                (
+                    values["video_id"],
+                    values["job_id"],
+                    values["run_id"],
+                    values["camera_id"],
+                    values["video_path"],
+                    values["label"],
+                    values["status"],
+                    updated_at,
+                    values["error"],
+                    json.dumps(values["metadata"], ensure_ascii=True),
+                    session_id,
+                ),
+            )
+        return self.load_chat_session(session_id)
+
+    def load_chat_session(self, session_id):
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT session_id, video_id, job_id, run_id, camera_id, video_path,
+                       label, status, created_at, updated_at, error, metadata_json
+                FROM chat_sessions
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "session_id": row["session_id"],
+            "video_id": row["video_id"],
+            "job_id": row["job_id"],
+            "run_id": row["run_id"],
+            "camera_id": row["camera_id"],
+            "video_path": row["video_path"],
+            "label": row["label"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "error": row["error"],
+            "metadata": json.loads(row["metadata_json"]),
+        }
+
+    def list_chat_sessions(self, limit=50):
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT session_id, video_id, job_id, run_id, camera_id, video_path,
+                       label, status, created_at, updated_at, error, metadata_json
+                FROM chat_sessions
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+
+        return [
+            {
+                "session_id": row["session_id"],
+                "video_id": row["video_id"],
+                "job_id": row["job_id"],
+                "run_id": row["run_id"],
+                "camera_id": row["camera_id"],
+                "video_path": row["video_path"],
+                "label": row["label"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+                "error": row["error"],
+                "metadata": json.loads(row["metadata_json"]),
+            }
+            for row in rows
+        ]
 
     def append_message(self, session_id, role, content, metadata=None):
         message_id = uuid.uuid4().hex

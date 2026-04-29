@@ -86,3 +86,30 @@ class AskResponse(BaseModel):
     run_ids: List[str]
     video_id: Optional[str] = None
     timeframe: Optional[Dict[str, Optional[float]]] = None
+
+
+class ChatSessionResponse(BaseModel):
+    session_id: str
+    status: str
+    video_id: Optional[str] = None
+    job_id: Optional[str] = None
+    run_id: Optional[str] = None
+    camera_id: str
+    video_path: Optional[str] = None
+    label: Optional[str] = None
+    created_at: str
+    updated_at: str
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    processing_job: Optional[Dict[str, Any]] = None
+
+
+class ChatAskRequest(BaseModel):
+    question: str
+    start_sec: Optional[float] = None
+    end_sec: Optional[float] = None
+    top_k: int = 4
+    history_turns: int = 8
+    answer_backend: str = "text"
+    answer_model: Optional[str] = None
+    device: str = "auto"

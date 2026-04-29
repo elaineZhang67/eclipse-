@@ -9,6 +9,7 @@ BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 FRONTEND_PORT="${FRONTEND_PORT:-8501}"
+STREAMLIT_MAX_UPLOAD_MB="${STREAMLIT_MAX_UPLOAD_MB:-4096}"
 
 CONDA_SH="${CONDA_SH:-$HOME/miniforge3/etc/profile.d/conda.sh}"
 CONDA_ENV_NAME="${CONDA_ENV_NAME:-eclipse}"
@@ -152,6 +153,7 @@ start_backend() {
         export MPLCONFIGDIR="$CACHE_ROOT/mpl"
         export SURVEILLANCE_MEMORY_DB="$MEMORY_DB"
         export SURVEILLANCE_VIDEO_STORAGE_DIR="$VIDEO_STORAGE_DIR"
+        export SURVEILLANCE_WORKER_LOG_DIR="$LOG_DIR/workers"
         nohup "$PYTHON_BIN" -m uvicorn backend.app:app \
             --host "$BACKEND_HOST" \
             --port "$BACKEND_PORT" \
@@ -178,11 +180,13 @@ start_frontend() {
         export XDG_CACHE_HOME="$CACHE_ROOT/xdg"
         export HF_HOME="$CACHE_ROOT/hf"
         export MPLCONFIGDIR="$CACHE_ROOT/mpl"
+        export SURVEILLANCE_API_BASE="http://127.0.0.1:${BACKEND_PORT}"
         nohup "$PYTHON_BIN" -m streamlit run "$REPO_ROOT/chat_frontend.py" \
             --global.developmentMode false \
             --server.address "$FRONTEND_HOST" \
             --server.port "$FRONTEND_PORT" \
             --server.headless true \
+            --server.maxUploadSize "$STREAMLIT_MAX_UPLOAD_MB" \
             >> "$LOG_DIR/frontend.log" 2>&1 &
         echo "$!" > "$pid_file"
     )

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from backend.chat_api import router as chat_router
 from backend.developer_api import router as developer_router
 from backend.user_api import router as user_router
 
@@ -15,6 +16,7 @@ app = FastAPI(
 
 app.include_router(developer_router)
 app.include_router(user_router)
+app.include_router(chat_router)
 
 
 @app.get("/health")
