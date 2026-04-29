@@ -128,13 +128,13 @@ def parse_args():
     p.add_argument("--interaction_combine_iou", type=float, default=0.05, help="IOU threshold to merge two boxes into one interaction region")
     p.add_argument("--interaction_combine_dist", type=float, default=1.2, help="normalized center-distance threshold for a merged interaction region")
     p.add_argument("--interaction_nearby_dist", type=float, default=2.5, help="normalized center-distance threshold for nearby but separate interactions")
-    p.add_argument("--use_llm", action="store_true", help="enable Qwen summary")
+    p.add_argument("--use_llm", action="store_true", help="enable LLM summary")
     p.add_argument(
         "--summary_backend",
         type=str,
         default="text",
         choices=["text", "vl"],
-        help="summary backend: text uses Qwen text-only prompts, vl uses image-conditioned prompts",
+        help="summary backend: text uses Qwen text-only prompts, vl uses Gemma4 image-conditioned prompts by default",
     )
     p.add_argument(
         "--llm_model",

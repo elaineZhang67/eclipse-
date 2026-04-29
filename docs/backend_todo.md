@@ -112,7 +112,7 @@ curl -X POST http://localhost:8000/developer/process \
       "use_track_memory": true,
       "use_llm": true,
       "summary_backend": "vl",
-      "llm_model": "Qwen/Qwen3-VL-4B-Instruct"
+      "llm_model": "google/gemma-4-E4B-it"
     }
   }'
 ```
@@ -128,6 +128,7 @@ curl -X POST http://localhost:8000/user/ask \
     "end_sec": 10,
     "question": "What are the people wearing and doing?",
     "answer_backend": "text",
+    "answer_model": "Qwen/Qwen2.5-14B-Instruct",
     "device": "cuda"
   }'
 ```

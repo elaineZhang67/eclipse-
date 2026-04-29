@@ -3,6 +3,10 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
+DEFAULT_PIPELINE_LLM_MODEL = "google/gemma-4-E4B-it"
+DEFAULT_CHAT_ANSWER_MODEL = "Qwen/Qwen2.5-14B-Instruct"
+
+
 class PipelineOptions(BaseModel):
     yolo: str = "yolov8n.pt"
     tracker: str = "botsort.yaml"
@@ -38,7 +42,7 @@ class PipelineOptions(BaseModel):
     appearance_reassoc_gap_sec: float = 20.0
     use_llm: bool = True
     summary_backend: str = "vl"
-    llm_model: Optional[str] = "Qwen/Qwen3-VL-4B-Instruct"
+    llm_model: Optional[str] = DEFAULT_PIPELINE_LLM_MODEL
     vl_max_track_images: int = 4
     vl_max_scene_images: int = 4
     vl_track_gap_sec: float = 1.5
@@ -74,7 +78,7 @@ class AskRequest(BaseModel):
     top_k: int = 4
     history_turns: int = 8
     answer_backend: str = "text"
-    answer_model: Optional[str] = None
+    answer_model: Optional[str] = DEFAULT_CHAT_ANSWER_MODEL
     device: str = "auto"
 
 
@@ -111,5 +115,5 @@ class ChatAskRequest(BaseModel):
     top_k: int = 4
     history_turns: int = 8
     answer_backend: str = "text"
-    answer_model: Optional[str] = None
+    answer_model: Optional[str] = DEFAULT_CHAT_ANSWER_MODEL
     device: str = "auto"

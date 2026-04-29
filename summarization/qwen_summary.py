@@ -10,8 +10,9 @@ from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 from runtime.device import model_load_kwargs, resolve_device
 
 
-DEFAULT_TEXT_MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
-DEFAULT_VL_MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
+DEFAULT_TEXT_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
+DEFAULT_QWEN_VL_MODEL_ID = "Qwen/Qwen3-VL-4B-Instruct"
+DEFAULT_VL_MODEL_ID = "google/gemma-4-E4B-it"
 
 
 def _move_to_device(batch, device, float_dtype=None):
@@ -40,6 +41,10 @@ def _select_model_id(model_id, backend):
     if backend == "vl":
         return DEFAULT_VL_MODEL_ID
     return DEFAULT_TEXT_MODEL_ID
+
+
+def _is_gemma4_model_id(model_id):
+    return "gemma-4" in str(model_id or "").lower() or "gemma4" in str(model_id or "").lower()
 
 
 def _extract_json(text):
@@ -283,7 +288,7 @@ class QwenVLSummarizer:
 
     def __init__(
         self,
-        model_id=DEFAULT_VL_MODEL_ID,
+        model_id=DEFAULT_QWEN_VL_MODEL_ID,
         max_track_images=4,
         max_scene_images=4,
         device="auto",
@@ -492,6 +497,15 @@ def build_summarizer(
     if backend == "text":
         return QwenSummarizer(model_id=resolved_model_id, device=device)
     if backend == "vl":
+        if _is_gemma4_model_id(resolved_model_id):
+            from summarization.gemma4_summary import build_gemma4_summarizer
+
+            return build_gemma4_summarizer(
+                model_id=resolved_model_id,
+                max_track_images=max_track_images,
+                max_scene_images=max_scene_images,
+                device=device,
+            )
         return QwenVLSummarizer(
             model_id=resolved_model_id,
             max_track_images=max_track_images,

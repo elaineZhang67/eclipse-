@@ -208,7 +208,7 @@ python main.py \
   --long_summary_sec 60 \
   --use_llm \
   --summary_backend vl \
-  --llm_model Qwen/Qwen3-VL-4B-Instruct \
+  --llm_model google/gemma-4-E4B-it \
   --memory_db memory_store/surveillance_memory.db \
   --camera_id camera_1 \
   --question "Who entered the scene carrying a suitcase and who interacted with them?"
