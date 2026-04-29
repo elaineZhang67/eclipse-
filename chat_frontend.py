@@ -25,53 +25,109 @@ def _inject_css():
     st.markdown(
         """
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,650;9..144,760&family=Manrope:wght@400;520;650;760;820&display=swap');
         :root {
-            --bg: #f4f6f5;
-            --panel: #ffffff;
-            --ink: #171a1f;
-            --muted: #66717d;
-            --line: #d8dedb;
-            --line-strong: #b8c4bf;
-            --green: #1f7a5c;
-            --green-soft: #dcefe7;
-            --amber: #a06612;
-            --amber-soft: #fff0c7;
-            --red: #a2342f;
-            --red-soft: #ffe2df;
-            --blue: #2f6690;
-            --blue-soft: #e4edf4;
+            --bg: #f3efe6;
+            --bg-2: #e9f0ea;
+            --panel: rgba(255, 252, 246, 0.88);
+            --panel-solid: #fffaf1;
+            --ink: #18201b;
+            --muted: #68736d;
+            --line: rgba(36, 54, 43, 0.13);
+            --line-strong: rgba(36, 54, 43, 0.24);
+            --sidebar: #0e1a16;
+            --sidebar-2: #13251f;
+            --sidebar-ink: #edf7f0;
+            --sidebar-muted: #9eb5aa;
+            --green: #176f50;
+            --green-soft: #dff3e9;
+            --amber: #98610c;
+            --amber-soft: #fff1cc;
+            --red: #a23a31;
+            --red-soft: #ffe1dc;
+            --blue: #285d76;
+            --blue-soft: #e1eef3;
+            --shadow: 0 22px 70px rgba(23, 36, 29, 0.12);
+            --shadow-soft: 0 12px 42px rgba(23, 36, 29, 0.08);
+        }
+        @keyframes riseIn {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         .stApp {
             background:
-                linear-gradient(180deg, #fbfcfb 0%, var(--bg) 42%, #eef3f1 100%);
+                radial-gradient(circle at 12% 12%, rgba(243, 197, 118, 0.34), transparent 28rem),
+                radial-gradient(circle at 88% 0%, rgba(91, 152, 121, 0.22), transparent 26rem),
+                linear-gradient(135deg, #fbf7ed 0%, var(--bg) 42%, var(--bg-2) 100%);
             color: var(--ink);
-            font-family: "Avenir Next", "Segoe UI", sans-serif;
+            font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
+        }
+        .stApp::before {
+            background-image:
+                linear-gradient(rgba(23, 111, 80, 0.055) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(23, 111, 80, 0.055) 1px, transparent 1px);
+            background-size: 42px 42px;
+            content: "";
+            inset: 0;
+            mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 68%);
+            pointer-events: none;
+            position: fixed;
+            z-index: 0;
         }
         .block-container {
-            max-width: 1220px;
-            padding-top: 1rem;
+            max-width: 1240px;
+            padding-top: 1.1rem;
             padding-bottom: 2.25rem;
+            position: relative;
+            z-index: 1;
         }
         .topbar {
             align-items: center;
             background:
-                linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 247, 243, 0.88)),
-                radial-gradient(circle at 88% 12%, rgba(31, 122, 92, 0.16), transparent 32%);
+                radial-gradient(circle at 90% 5%, rgba(247, 188, 92, 0.34), transparent 17rem),
+                radial-gradient(circle at 76% 82%, rgba(23, 111, 80, 0.22), transparent 15rem),
+                linear-gradient(135deg, rgba(255, 252, 246, 0.94), rgba(241, 248, 241, 0.86));
+            backdrop-filter: blur(18px);
             border: 1px solid var(--line);
-            border-radius: 8px;
-            box-shadow: 0 18px 48px rgba(31, 45, 38, 0.08);
+            border-radius: 28px;
+            box-shadow: var(--shadow);
             display: flex;
             gap: 1rem;
             justify-content: space-between;
-            margin-bottom: 1.05rem;
+            margin-bottom: 1.1rem;
             overflow: hidden;
-            padding: 1rem 1.05rem;
+            padding: 1.25rem 1.35rem;
+            position: relative;
+            animation: riseIn 420ms ease-out both;
+        }
+        .topbar::after {
+            border: 1px solid rgba(23, 111, 80, 0.18);
+            border-radius: 999px;
+            content: "";
+            height: 9.5rem;
+            position: absolute;
+            right: -2.1rem;
+            top: -3.8rem;
+            transform: rotate(-14deg);
+            width: 17rem;
+        }
+        .topbar > * {
+            position: relative;
+            z-index: 1;
         }
         .title {
-            font-size: clamp(1.7rem, 3vw, 2.45rem);
-            font-weight: 780;
-            line-height: 1.15;
-            letter-spacing: -0.04em;
+            font-family: "Fraunces", Georgia, serif;
+            font-size: clamp(2rem, 4vw, 3.35rem);
+            font-weight: 760;
+            line-height: 0.98;
+            letter-spacing: -0.055em;
+            max-width: 760px;
         }
         .kicker {
             color: var(--green);
@@ -84,15 +140,18 @@ def _inject_css():
         .muted {
             color: var(--muted);
             font-size: 0.88rem;
+            line-height: 1.55;
+            max-width: 660px;
         }
         .top-actions {
-            background: rgba(255, 255, 255, 0.72);
+            background: rgba(255, 250, 241, 0.76);
             border: 1px solid var(--line);
-            border-radius: 8px;
+            border-radius: 18px;
             color: var(--ink);
-            font-size: 0.78rem;
+            font-size: 0.8rem;
             font-weight: 700;
-            padding: 0.62rem 0.7rem;
+            line-height: 1.55;
+            padding: 0.72rem 0.86rem;
             text-align: right;
             white-space: nowrap;
         }
@@ -106,10 +165,12 @@ def _inject_css():
         }
         .panel {
             background: var(--panel);
+            backdrop-filter: blur(18px);
             border: 1px solid var(--line);
-            border-radius: 8px;
-            box-shadow: 0 14px 38px rgba(31, 45, 38, 0.06);
-            padding: 1rem 1rem 1.05rem;
+            border-radius: 26px;
+            box-shadow: var(--shadow-soft);
+            padding: 1.12rem 1.12rem 1.18rem;
+            animation: riseIn 480ms ease-out both;
         }
         .panel-copy {
             color: var(--muted);
@@ -118,31 +179,58 @@ def _inject_css():
             margin: -0.2rem 0 0.85rem;
         }
         .mini-card {
-            background: #f7f9f8;
-            border: 1px solid #e5ebe8;
-            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(255, 244, 220, 0.95), rgba(227, 243, 232, 0.92));
+            border: 1px solid rgba(23, 111, 80, 0.13);
+            border-radius: 18px;
             color: var(--muted);
             font-size: 0.84rem;
             line-height: 1.5;
             margin-top: 0.85rem;
-            padding: 0.75rem;
+            padding: 0.82rem 0.9rem;
+        }
+        .prompt-grid {
+            display: grid;
+            gap: 0.62rem;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            margin-top: 0.86rem;
+        }
+        .prompt-card {
+            background: rgba(255, 255, 255, 0.54);
+            border: 1px solid rgba(36, 54, 43, 0.1);
+            border-radius: 18px;
+            color: var(--muted);
+            font-size: 0.8rem;
+            line-height: 1.42;
+            padding: 0.82rem;
+        }
+        .prompt-card-title {
+            color: var(--ink);
+            font-size: 0.78rem;
+            font-weight: 780;
+            margin-bottom: 0.24rem;
         }
         .metric-strip {
             display: grid;
-            gap: 0.55rem;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            margin-top: 0.85rem;
+            gap: 0.62rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            margin-top: 0.9rem;
         }
         .metric {
-            background: #f7f9f8;
-            border: 1px solid #e5ebe8;
-            border-radius: 8px;
-            padding: 0.62rem;
+            background: rgba(255, 255, 255, 0.58);
+            border: 1px solid rgba(36, 54, 43, 0.1);
+            border-radius: 17px;
+            min-height: 4.1rem;
+            padding: 0.72rem;
+        }
+        .metric:last-child {
+            grid-column: 1 / -1;
         }
         .metric-value {
             color: var(--ink);
-            font-size: 1rem;
+            font-size: 1.02rem;
             font-weight: 780;
+            overflow-wrap: anywhere;
         }
         .metric-label {
             color: var(--muted);
@@ -161,6 +249,7 @@ def _inject_css():
             .topbar {
                 align-items: start;
                 display: block;
+                border-radius: 24px;
             }
             .top-actions {
                 margin-top: 0.35rem;
@@ -169,21 +258,27 @@ def _inject_css():
             .upload-grid {
                 grid-template-columns: 1fr;
             }
+            .prompt-grid {
+                grid-template-columns: 1fr;
+            }
         }
         .status-row {
             align-items: center;
-            background: var(--panel);
+            background: rgba(255, 252, 246, 0.88);
+            backdrop-filter: blur(18px);
             border: 1px solid var(--line);
-            border-radius: 8px;
+            border-radius: 24px;
             display: flex;
             gap: 0.75rem;
             justify-content: space-between;
             margin-bottom: 1.05rem;
-            padding: 0.8rem 0.9rem;
-            box-shadow: 0 10px 28px rgba(31, 45, 38, 0.05);
+            padding: 0.92rem 1.02rem;
+            box-shadow: var(--shadow-soft);
+            animation: riseIn 420ms ease-out both;
         }
         .status-left {
             min-width: 0;
+            width: 100%;
         }
         .status-grid {
             display: grid;
@@ -192,9 +287,9 @@ def _inject_css():
             margin-top: 0.65rem;
         }
         .status-cell {
-            background: #f7f9f8;
-            border: 1px solid #e5ebe8;
-            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.55);
+            border: 1px solid rgba(36, 54, 43, 0.1);
+            border-radius: 16px;
             min-height: 3.1rem;
             padding: 0.45rem 0.55rem;
         }
@@ -223,7 +318,7 @@ def _inject_css():
             font-size: 0.72rem;
             font-weight: 760;
             letter-spacing: 0.04em;
-            padding: 0.22rem 0.58rem;
+            padding: 0.26rem 0.65rem;
             text-transform: uppercase;
         }
         .status-processing {
@@ -240,35 +335,39 @@ def _inject_css():
         }
         .session-meta {
             color: var(--muted);
-            font-size: 0.82rem;
-            margin-top: 0.25rem;
+            font-size: 0.9rem;
+            font-weight: 650;
+            margin-top: 0.34rem;
             overflow-wrap: anywhere;
         }
         .chat-shell {
-            min-height: 520px;
+            min-height: 560px;
         }
         .chat-header {
             align-items: center;
             display: flex;
             justify-content: space-between;
-            margin-bottom: 0.55rem;
+            margin-bottom: 0.7rem;
         }
         .chat-status {
             background: var(--blue-soft);
+            border: 1px solid rgba(40, 93, 118, 0.12);
             border-radius: 999px;
             color: var(--blue);
             font-size: 0.72rem;
             font-weight: 760;
-            padding: 0.22rem 0.55rem;
+            padding: 0.26rem 0.64rem;
         }
         .empty-chat {
-            background: #f7f9f8;
+            background:
+                radial-gradient(circle at 18% 20%, rgba(247, 188, 92, 0.24), transparent 10rem),
+                linear-gradient(135deg, rgba(255, 255, 255, 0.52), rgba(232, 244, 236, 0.66));
             border: 1px dashed var(--line-strong);
-            border-radius: 8px;
+            border-radius: 22px;
             color: var(--muted);
             font-size: 0.9rem;
             margin: 0.2rem 0 1rem;
-            padding: 1rem;
+            padding: 1.05rem 1.1rem;
         }
         .preview-title {
             align-items: center;
@@ -284,7 +383,8 @@ def _inject_css():
         }
         .video-shell {
             background: #111418;
-            border-radius: 8px;
+            border-radius: 20px;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
             overflow: hidden;
         }
         .detail-list {
@@ -309,122 +409,188 @@ def _inject_css():
             overflow-wrap: anywhere;
             padding-top: 0.12rem;
         }
+        .pipeline-flow {
+            display: grid;
+            gap: 0.58rem;
+            margin-top: 0.86rem;
+        }
+        .flow-step {
+            align-items: center;
+            background: rgba(255, 255, 255, 0.54);
+            border: 1px solid rgba(36, 54, 43, 0.1);
+            border-radius: 17px;
+            display: grid;
+            gap: 0.65rem;
+            grid-template-columns: 2.15rem minmax(0, 1fr);
+            padding: 0.66rem 0.72rem;
+        }
+        .flow-number {
+            align-items: center;
+            background: #123d2f;
+            border-radius: 999px;
+            color: #fff8e9;
+            display: flex;
+            font-size: 0.76rem;
+            font-weight: 820;
+            height: 2.05rem;
+            justify-content: center;
+            width: 2.05rem;
+        }
+        .flow-title {
+            color: var(--ink);
+            font-size: 0.82rem;
+            font-weight: 780;
+        }
+        .flow-copy {
+            color: var(--muted);
+            font-size: 0.74rem;
+            line-height: 1.35;
+            margin-top: 0.06rem;
+        }
         div[data-testid="stChatInput"] {
             border-top: 1px solid var(--line);
+            padding-top: 0.75rem;
         }
         section[data-testid="stSidebar"] {
-            background: #f8faf8;
-            border-right: 1px solid var(--line);
+            background:
+                radial-gradient(circle at 10% 0%, rgba(247, 188, 92, 0.16), transparent 14rem),
+                linear-gradient(180deg, var(--sidebar-2), var(--sidebar) 44%, #09120f);
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
         }
         section[data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] p {
-            color: var(--muted);
+            color: var(--sidebar-muted);
+        }
+        section[data-testid="stSidebar"] label,
+        section[data-testid="stSidebar"] .stSelectbox label,
+        section[data-testid="stSidebar"] .stTextInput label,
+        section[data-testid="stSidebar"] .stSlider label {
+            color: var(--sidebar-ink);
         }
         section[data-testid="stSidebar"] .stButton > button {
-            background: transparent;
-            border: 1px solid transparent;
-            color: var(--ink);
+            background: rgba(255, 255, 255, 0.045);
+            border: 1px solid rgba(255, 255, 255, 0.065);
+            border-radius: 14px;
+            color: var(--sidebar-ink);
             justify-content: flex-start;
             min-height: 2.15rem;
-            padding-left: 0.65rem;
+            padding-left: 0.72rem;
             text-align: left;
         }
         section[data-testid="stSidebar"] .stButton > button:hover {
-            background: #eef3f1;
-            border-color: #dce5e1;
-            color: var(--ink);
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.16);
+            color: #ffffff;
         }
         section[data-testid="stSidebar"] .stButton > button:focus {
-            background: #e7f1ec;
-            border-color: var(--green);
-            color: var(--ink);
+            background: rgba(247, 188, 92, 0.16);
+            border-color: rgba(247, 188, 92, 0.5);
+            color: #ffffff;
         }
         section[data-testid="stSidebar"] details {
-            border-top: 1px solid var(--line);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
             margin-top: 0.8rem;
             padding-top: 0.55rem;
         }
         .sidebar-brand {
-            color: var(--ink);
-            font-size: 1.18rem;
+            color: var(--sidebar-ink);
+            font-family: "Fraunces", Georgia, serif;
+            font-size: 1.45rem;
             font-weight: 820;
             letter-spacing: -0.03em;
             margin: 0.15rem 0 0.05rem;
         }
         .sidebar-brand-sub {
-            color: var(--muted);
+            color: var(--sidebar-muted);
             font-size: 0.76rem;
             line-height: 1.4;
             margin-bottom: 0.85rem;
         }
         .sidebar-title {
-            color: var(--ink);
+            color: var(--sidebar-ink);
             font-size: 1.08rem;
             font-weight: 790;
             margin: 0.25rem 0 0.15rem;
         }
         .sidebar-caption {
-            color: var(--muted);
+            color: var(--sidebar-muted);
             font-size: 0.78rem;
             line-height: 1.4;
             margin-bottom: 0.7rem;
         }
         .sidebar-section {
-            color: var(--green);
+            color: #f3c576;
             font-size: 0.7rem;
             font-weight: 820;
             letter-spacing: 0.08em;
-            margin: 0.25rem 0 0.4rem;
+            margin: 0.45rem 0 0.42rem;
             text-transform: uppercase;
         }
         .history-meta {
-            color: var(--muted);
+            color: var(--sidebar-muted);
             font-size: 0.68rem;
-            margin: -0.25rem 0 0.42rem 0.65rem;
+            margin: -0.22rem 0 0.46rem 0.72rem;
             overflow-wrap: anywhere;
         }
         .history-empty {
-            border: 1px dashed var(--line-strong);
-            border-radius: 8px;
-            color: var(--muted);
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px dashed rgba(255, 255, 255, 0.18);
+            border-radius: 16px;
+            color: var(--sidebar-muted);
             font-size: 0.8rem;
             line-height: 1.45;
-            padding: 0.7rem;
+            padding: 0.78rem;
         }
         .sidebar-footer {
-            color: var(--muted);
+            color: var(--sidebar-muted);
             font-size: 0.72rem;
             line-height: 1.4;
             margin-top: 0.75rem;
         }
         .stButton > button, .stFormSubmitButton > button {
-            border-radius: 8px;
+            border-radius: 16px;
             font-weight: 720;
             min-height: 2.45rem;
         }
         .stFormSubmitButton > button {
-            background: var(--green);
-            border-color: var(--green);
+            background: linear-gradient(135deg, #176f50, #2f8a64);
+            border-color: rgba(23, 111, 80, 0.18);
+            box-shadow: 0 12px 28px rgba(23, 111, 80, 0.22);
             color: white;
         }
         .stFormSubmitButton > button:hover {
-            background: #17694f;
-            border-color: #17694f;
+            background: linear-gradient(135deg, #105d42, #287a58);
+            border-color: rgba(23, 111, 80, 0.3);
             color: white;
         }
         div[data-testid="stFileUploader"] {
             border: 1px solid var(--line);
-            border-radius: 8px;
+            border-radius: 22px;
             padding: 0.4rem;
         }
         div[data-testid="stFileUploaderDropzone"] {
-            background: #f7f9f8;
-            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.68), rgba(232, 244, 236, 0.68));
+            border-radius: 18px;
         }
         div[data-testid="stChatMessage"] {
-            border-radius: 8px;
+            border-radius: 18px;
+            padding: 0.36rem 0.1rem;
+        }
+        div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] {
+            background: rgba(255, 255, 255, 0.52);
+            border: 1px solid rgba(36, 54, 43, 0.09);
+            border-radius: 18px;
+            box-shadow: 0 8px 24px rgba(23, 36, 29, 0.045);
+            padding: 0.72rem 0.86rem;
+        }
+        div[data-testid="stChatMessage"] div[data-testid="stMarkdownContainer"] p:last-child {
+            margin-bottom: 0;
         }
         div[data-testid="stAlert"] {
-            border-radius: 8px;
+            border-radius: 18px;
+        }
+        input, textarea {
+            border-radius: 14px !important;
         }
         </style>
         """,
@@ -730,6 +896,25 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
             '<div class="mini-card">The frontend will not answer while processing. Once the session is completed, questions use the indexed pipeline outputs for retrieval and response generation.</div>',
             unsafe_allow_html=True,
         )
+        st.markdown(
+            """
+            <div class="prompt-grid">
+              <div class="prompt-card">
+                <div class="prompt-card-title">Ask what happened</div>
+                "Summarize the main events in this clip."
+              </div>
+              <div class="prompt-card">
+                <div class="prompt-card-title">Ask about people</div>
+                "When did a person enter or leave the scene?"
+              </div>
+              <div class="prompt-card">
+                <div class="prompt-card-title">Ask for evidence</div>
+                "Which timestamps support that answer?"
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with right:
@@ -758,6 +943,29 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
                 <div class="metric">
                   <div class="metric-value">{model}</div>
                   <div class="metric-label">Model</div>
+                </div>
+              </div>
+              <div class="pipeline-flow">
+                <div class="flow-step">
+                  <div class="flow-number">1</div>
+                  <div>
+                    <div class="flow-title">Upload video</div>
+                    <div class="flow-copy">Create a dedicated session and persist the raw clip.</div>
+                  </div>
+                </div>
+                <div class="flow-step">
+                  <div class="flow-number">2</div>
+                  <div>
+                    <div class="flow-title">Run full pipeline</div>
+                    <div class="flow-copy">SAM3 detection, tracking, summaries, memory, and retrieval indexes.</div>
+                  </div>
+                </div>
+                <div class="flow-step">
+                  <div class="flow-number">3</div>
+                  <div>
+                    <div class="flow-title">Chat unlocks</div>
+                    <div class="flow-copy">Answers are generated only after processing completes.</div>
+                  </div>
                 </div>
               </div>
               <div class="detail-list">
