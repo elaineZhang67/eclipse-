@@ -65,6 +65,7 @@ def _start_worker(session_id, job_id):
     log_path = log_dir / "{session_id}.log".format(session_id=session_id)
     env = dict(os.environ)
     env["SURVEILLANCE_MEMORY_DB"] = DEFAULT_MEMORY_DB
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     with log_path.open("ab") as log_handle:
         process = subprocess.Popen(
             [

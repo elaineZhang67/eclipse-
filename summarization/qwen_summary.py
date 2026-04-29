@@ -487,8 +487,10 @@ class QwenVLSummarizer:
 def build_summarizer(
     backend="text",
     model_id=None,
-    max_track_images=4,
-    max_scene_images=4,
+    max_track_images=1,
+    max_scene_images=1,
+    vl_image_long_edge=384,
+    gemma4_max_prompt_chars=12000,
     device="auto",
 ):
     backend = str(backend or "text").strip().lower()
@@ -504,6 +506,8 @@ def build_summarizer(
                 model_id=resolved_model_id,
                 max_track_images=max_track_images,
                 max_scene_images=max_scene_images,
+                image_long_edge=vl_image_long_edge,
+                max_prompt_chars=gemma4_max_prompt_chars,
                 device=device,
             )
         return QwenVLSummarizer(
