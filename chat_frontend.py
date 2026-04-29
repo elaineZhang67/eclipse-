@@ -11,6 +11,7 @@ import streamlit as st
 DEFAULT_API_BASE = os.environ.get("SURVEILLANCE_API_BASE", "http://127.0.0.1:8000")
 DEFAULT_PIPELINE_LLM_MODEL = "google/gemma-4-E4B-it"
 DEFAULT_CHAT_ANSWER_MODEL = "Qwen/Qwen2.5-14B-Instruct"
+DEFAULT_OBJECT_BACKEND = "sam3"
 VIDEO_TYPES = ["mp4", "mov", "avi", "mkv", "webm"]
 PROCESSING_STATUSES = {"uploaded", "queued", "running"}
 
@@ -128,7 +129,7 @@ def _inject_css():
         .metric-strip {
             display: grid;
             gap: 0.55rem;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             margin-top: 0.85rem;
         }
         .metric {
@@ -504,11 +505,13 @@ def _upload_video(
     camera_id,
     label,
     pipeline_device,
+    object_backend,
     summary_backend,
     llm_model,
 ):
     options = {
         "device": pipeline_device,
+        "object_backend": object_backend,
         "summary_backend": summary_backend,
     }
     if llm_model:
@@ -687,7 +690,7 @@ def _render_messages(messages):
             st.markdown(content)
 
 
-def _render_upload(api_base, pipeline_device, summary_backend, llm_model):
+def _render_upload(api_base, pipeline_device, object_backend, summary_backend, llm_model):
     left, right = st.columns([1.15, 0.85], gap="large")
     with left:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -713,6 +716,7 @@ def _render_upload(api_base, pipeline_device, summary_backend, llm_model):
                         camera_id=camera_id.strip() or "camera_1",
                         label=label.strip(),
                         pipeline_device=pipeline_device,
+                        object_backend=object_backend,
                         summary_backend=summary_backend,
                         llm_model=llm_model.strip(),
                 )
@@ -736,6 +740,10 @@ def _render_upload(api_base, pipeline_device, summary_backend, llm_model):
                   <div class="metric-label">Device</div>
                 </div>
                 <div class="metric">
+                  <div class="metric-value">{object_backend}</div>
+                  <div class="metric-label">Objects</div>
+                </div>
+                <div class="metric">
                   <div class="metric-value">{summary_backend}</div>
                   <div class="metric-label">Summary</div>
                 </div>
@@ -751,7 +759,7 @@ def _render_upload(api_base, pipeline_device, summary_backend, llm_model):
                 </div>
                 <div class="detail-item">
                   <div class="detail-label">Pipeline</div>
-                  <div class="detail-value">{pipeline_device} / {summary_backend}</div>
+                  <div class="detail-value">{pipeline_device} / {object_backend} / {summary_backend}</div>
                 </div>
                 <div class="detail-item">
                   <div class="detail-label">Model</div>
@@ -762,6 +770,7 @@ def _render_upload(api_base, pipeline_device, summary_backend, llm_model):
             """.format(
                 api_base=_esc(api_base),
                 pipeline_device=_esc(pipeline_device),
+                object_backend=_esc(object_backend),
                 summary_backend=_esc(summary_backend),
                 model=_esc(llm_model or DEFAULT_PIPELINE_LLM_MODEL),
             ),
@@ -776,6 +785,7 @@ def main():
     sidebar_defaults = {
         "api_base": DEFAULT_API_BASE,
         "pipeline_device": "auto",
+        "object_backend": DEFAULT_OBJECT_BACKEND,
         "summary_backend": "vl",
         "llm_model": DEFAULT_PIPELINE_LLM_MODEL,
         "answer_backend": "text",
@@ -850,6 +860,7 @@ def main():
             api_base = st.text_input("Backend", key="api_base")
             st.markdown('<div class="sidebar-section">Processing</div>', unsafe_allow_html=True)
             pipeline_device = st.selectbox("Pipeline device", options=["auto", "cuda", "cpu", "mps"], key="pipeline_device")
+            object_backend = st.selectbox("Object backend", options=["sam3", "yolo", "sam2"], key="object_backend")
             summary_backend = st.selectbox("Pipeline summary", options=["vl", "text"], key="summary_backend")
             llm_model = st.text_input("Pipeline model", key="llm_model")
             st.markdown('<div class="sidebar-section">Answers</div>', unsafe_allow_html=True)
@@ -866,6 +877,7 @@ def main():
 
     api_base = st.session_state["api_base"]
     pipeline_device = st.session_state["pipeline_device"]
+    object_backend = st.session_state["object_backend"]
     summary_backend = st.session_state["summary_backend"]
     llm_model = st.session_state["llm_model"]
     answer_backend = st.session_state["answer_backend"]
@@ -876,7 +888,7 @@ def main():
 
     session_id = _active_session_id()
     if not session_id:
-        _render_upload(api_base, pipeline_device, summary_backend, llm_model)
+        _render_upload(api_base, pipeline_device, object_backend, summary_backend, llm_model)
         return
 
     try:

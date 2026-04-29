@@ -5,6 +5,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${DEMO_REPO_ROOT:-$SCRIPT_DIR}"
 COMMAND="${1:-start}"
 
+source_env_file() {
+    local env_file="$1"
+    if [[ ! -f "$env_file" ]]; then
+        return
+    fi
+    set -a
+    # shellcheck source=/dev/null
+    source "$env_file"
+    set +a
+}
+
+source_env_file "$REPO_ROOT/.env.local"
+
 BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
@@ -53,6 +66,13 @@ mkdir -p \
     "$TMP_FALLBACK" \
     "$DEMO_ROOT/memory_store" \
     "$VIDEO_STORAGE_DIR"
+
+source_env_file "$DEMO_ROOT/.env.local"
+if [[ -n "${HF_TOKEN:-}" && -z "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+    export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
+elif [[ -n "${HUGGING_FACE_HUB_TOKEN:-}" && -z "${HF_TOKEN:-}" ]]; then
+    export HF_TOKEN="$HUGGING_FACE_HUB_TOKEN"
+fi
 
 build_pythonpath() {
     local joined=""
@@ -113,7 +133,10 @@ usage() {
         "  FRONTEND_PORT         Streamlit port. Default: 8501" \
         "  CONDA_ENV_NAME        Conda env to activate. Default: eclipse" \
         "  EXTRA_PYTHONPATH      Extra import paths to prepend." \
-        "  PYTHON_BIN            Python executable to use after activation."
+        "  PYTHON_BIN            Python executable to use after activation." \
+        "" \
+        "Local secrets:" \
+        "  .env.local files in the repo root or DEMO_ROOT are sourced if present."
 }
 
 pid_path() {

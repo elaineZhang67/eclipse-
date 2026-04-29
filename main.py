@@ -15,7 +15,7 @@ def parse_args():
     p.add_argument(
         "--object_backend",
         type=str,
-        default="yolo",
+        default="sam3",
         choices=["yolo", "sam2", "sam3"],
         help=(
             "object detection backend: yolo uses YOLO tracking, sam2 uses YOLO proposals + "

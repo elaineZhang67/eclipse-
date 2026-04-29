@@ -203,6 +203,7 @@ With VL plus longer summaries plus QA:
 python main.py \
   --video /path/to/video.mp4 \
   --device cuda \
+  --object_backend sam3 \
   --environment airport \
   --event_window_sec 5 \
   --long_summary_sec 60 \
@@ -220,6 +221,7 @@ Persist one run to memory:
 python main.py \
   --video /path/to/video.mp4 \
   --device cuda \
+  --object_backend sam3 \
   --environment airport \
   --event_window_sec 5 \
   --long_summary_sec 60 \

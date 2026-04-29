@@ -137,7 +137,7 @@ def run_pipeline(args):
 
     # 1) modules
     sampler = FrameSampler(target_fps=args.fps)
-    object_backend = str(getattr(args, "object_backend", "yolo")).strip().lower()
+    object_backend = str(getattr(args, "object_backend", "sam3")).strip().lower()
     if object_backend == "sam2":
         object_source = Sam2Detector(
             model_id=getattr(args, "sam2_model", "facebook/sam2.1-hiera-large"),
