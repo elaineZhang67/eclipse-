@@ -108,6 +108,7 @@ curl -X POST http://localhost:8000/developer/process \
     "video_id": "test_video",
     "options": {
       "device": "cuda",
+      "track_backend": "sam3",
       "object_backend": "sam3",
       "environment": "generic",
       "use_track_memory": true,

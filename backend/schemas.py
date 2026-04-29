@@ -10,6 +10,7 @@ DEFAULT_CHAT_ANSWER_MODEL = "Qwen/Qwen2.5-14B-Instruct"
 class PipelineOptions(BaseModel):
     yolo: str = "yolov8n.pt"
     tracker: str = "botsort.yaml"
+    track_backend: str = "sam3"
     object_backend: str = "sam3"
     sam2_model: str = "facebook/sam2.1-hiera-large"
     sam2_mask_threshold: float = 0.5

@@ -13,6 +13,13 @@ def parse_args():
     p.add_argument("--yolo", type=str, default="yolov8n.pt", help="YOLOv8 weights")
     p.add_argument("--tracker", type=str, default="botsort.yaml", help="Ultralytics tracker config")
     p.add_argument(
+        "--track_backend",
+        type=str,
+        default="sam3",
+        choices=["yolo", "sam3"],
+        help="person tracking backend: sam3 uses SAM3 text-prompt person segmentation, yolo uses YOLO + tracker",
+    )
+    p.add_argument(
         "--object_backend",
         type=str,
         default="sam3",

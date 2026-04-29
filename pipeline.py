@@ -27,6 +27,22 @@ def _parse_csv_arg(value, default=None):
     return [chunk.strip() for chunk in str(value).split(",") if chunk.strip()]
 
 
+def _normalize_label(value):
+    return str(value or "").strip().lower().replace("_", " ")
+
+
+def _dedupe_labels(labels):
+    deduped = []
+    seen = set()
+    for label in labels or []:
+        normalized = _normalize_label(label)
+        if not normalized or normalized in seen:
+            continue
+        deduped.append(str(label).strip())
+        seen.add(normalized)
+    return deduped
+
+
 def _build_tqdm(iterable=None, total=None, desc="", unit="it", disable=False):
     return tqdm(
         iterable=iterable,
@@ -138,7 +154,22 @@ def run_pipeline(args):
     # 1) modules
     sampler = FrameSampler(target_fps=args.fps)
     object_backend = str(getattr(args, "object_backend", "sam3")).strip().lower()
-    if object_backend == "sam2":
+    track_backend = str(getattr(args, "track_backend", "sam3")).strip().lower()
+    if object_backend == "sam3" and track_backend == "sam3":
+        combined_sam3_detector = Sam3Detector(
+            model_id=getattr(args, "sam3_model", "facebook/sam3"),
+            conf=args.min_conf,
+            mask_threshold=getattr(args, "sam3_mask_threshold", 0.5),
+            classes=_dedupe_labels(track_labels + object_labels),
+            device=getattr(args, "device", "auto"),
+            track_iou=getattr(args, "sam3_track_iou", 0.3),
+            track_ttl=getattr(args, "sam3_track_ttl", 12),
+        )
+        object_source = combined_sam3_detector
+        tracker = combined_sam3_detector
+        object_source_missing = list(getattr(combined_sam3_detector, "missing_classes", []))
+        tracker_missing_classes = list(getattr(combined_sam3_detector, "missing_classes", []))
+    elif object_backend == "sam2":
         object_source = Sam2Detector(
             model_id=getattr(args, "sam2_model", "facebook/sam2.1-hiera-large"),
             yolo_weights=args.yolo,
@@ -169,12 +200,26 @@ def run_pipeline(args):
             classes=object_labels,
         )
         object_source_missing = list(getattr(object_source, "missing_classes", []))
-    tracker = MultiObjectTracker(
-        weights=args.yolo,
-        tracker_cfg=args.tracker,
-        conf=args.min_conf,
-        classes=track_labels,
-    )
+    if not (object_backend == "sam3" and track_backend == "sam3"):
+        if track_backend == "sam3":
+            tracker = Sam3Detector(
+                model_id=getattr(args, "sam3_model", "facebook/sam3"),
+                conf=args.min_conf,
+                mask_threshold=getattr(args, "sam3_mask_threshold", 0.5),
+                classes=track_labels,
+                device=getattr(args, "device", "auto"),
+                track_iou=getattr(args, "sam3_track_iou", 0.3),
+                track_ttl=getattr(args, "sam3_track_ttl", 12),
+            )
+        else:
+            tracker = MultiObjectTracker(
+                weights=args.yolo,
+                tracker_cfg=args.tracker,
+                conf=args.min_conf,
+                classes=track_labels,
+            )
+        tracker_missing_classes = list(getattr(tracker, "missing_classes", []))
+    track_label_set = {_normalize_label(label) for label in track_labels}
     track_memory_bank = None
     if getattr(args, "use_track_memory", False):
         track_memory_bank = TrackMemoryBank(
@@ -232,12 +277,20 @@ def run_pipeline(args):
             if not ok:
                 break
 
-            if object_backend == "sam3":
-                object_tracks = object_source.update(frame_bgr)
+            if object_source is tracker:
+                combined_tracks = tracker.update(frame_bgr)
+                person_tracks = [
+                    tr for tr in combined_tracks if _normalize_label(tr.get("label")) in track_label_set
+                ]
+                object_tracks = [
+                    tr for tr in combined_tracks if _normalize_label(tr.get("label")) not in track_label_set
+                ]
             else:
                 object_tracks = object_source.update(frame_bgr)
-            tracks = tracker.update(frame_bgr)
-            person_tracks = [tr for tr in tracks if tr.get("label") == "person"]
+                tracks = tracker.update(frame_bgr)
+                person_tracks = [
+                    tr for tr in tracks if _normalize_label(tr.get("label")) in track_label_set
+                ]
             if track_memory_bank is not None:
                 person_tracks = track_memory_bank.update(frame_bgr, person_tracks, t_sec)
             else:
@@ -386,13 +439,15 @@ def run_pipeline(args):
         "config": {
             "track_labels": track_labels,
             "object_labels": object_labels,
-            "unsupported_track_labels": tracker.missing_classes,
+            "unsupported_track_labels": tracker_missing_classes,
             "unsupported_object_labels": object_source_missing,
             "clip_len": clip_len,
             "stride": stride,
             "event_window_sec": args.event_window_sec,
             "long_summary_sec": getattr(args, "long_summary_sec", 60.0),
             "tracker": args.tracker,
+            "track_backend": track_backend,
+            "person_tracker_model": getattr(args, "sam3_model", None) if track_backend == "sam3" else args.yolo,
             "object_backend": object_backend,
             "sam2_model": getattr(args, "sam2_model", None) if object_backend == "sam2" else None,
             "sam2_mask_threshold": getattr(args, "sam2_mask_threshold", None) if object_backend == "sam2" else None,
