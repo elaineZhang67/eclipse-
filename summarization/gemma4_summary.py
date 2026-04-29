@@ -1,4 +1,3 @@
-import os
 import tempfile
 from pathlib import Path
 
@@ -14,15 +13,6 @@ from summarization.qwen_summary import QwenVLSummarizer, _move_to_device
 DEFAULT_GEMMA4_MODEL_ID = "google/gemma-4-E4B-it"
 DEFAULT_GEMMA4_MAX_PROMPT_CHARS = 12000
 DEFAULT_GEMMA4_IMAGE_LONG_EDGE = 384
-DEFAULT_GEMMA4_MAX_TRACK_IMAGES = 1
-DEFAULT_GEMMA4_MAX_SCENE_IMAGES = 1
-
-
-def _env_int(name, default):
-    try:
-        return int(os.environ.get(name, default))
-    except (TypeError, ValueError):
-        return int(default)
 
 
 def _safe_rgb_image(image_rgb, max_long_edge):
@@ -99,17 +89,15 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
     def __init__(
         self,
         model_id=DEFAULT_GEMMA4_MODEL_ID,
-        max_track_images=DEFAULT_GEMMA4_MAX_TRACK_IMAGES,
-        max_scene_images=DEFAULT_GEMMA4_MAX_SCENE_IMAGES,
+        max_track_images=1,
+        max_scene_images=1,
         image_long_edge=DEFAULT_GEMMA4_IMAGE_LONG_EDGE,
         max_prompt_chars=DEFAULT_GEMMA4_MAX_PROMPT_CHARS,
         device="auto",
     ):
         self.model_id = model_id
-        safe_track_images = max(0, _env_int("ECLIPSE_GEMMA4_MAX_TRACK_IMAGES", DEFAULT_GEMMA4_MAX_TRACK_IMAGES))
-        safe_scene_images = max(0, _env_int("ECLIPSE_GEMMA4_MAX_SCENE_IMAGES", DEFAULT_GEMMA4_MAX_SCENE_IMAGES))
-        self.max_track_images = min(max(0, int(max_track_images)), safe_track_images)
-        self.max_scene_images = min(max(0, int(max_scene_images)), safe_scene_images)
+        self.max_track_images = max(0, int(max_track_images))
+        self.max_scene_images = max(0, int(max_scene_images))
         self.image_long_edge = max(0, int(image_long_edge))
         self.max_prompt_chars = max(0, int(max_prompt_chars))
         self.device = resolve_device(device)
