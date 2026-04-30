@@ -1533,11 +1533,26 @@ def _render_messages(messages):
             unsafe_allow_html=True,
         )
         return
-    for message in messages:
-        role = message.get("role", "assistant")
-        content = message.get("content", "")
-        with st.chat_message(role):
-            st.markdown(content)
+    for group in _message_groups_latest_first(messages):
+        for message in group:
+            role = message.get("role", "assistant")
+            content = message.get("content", "")
+            with st.chat_message(role):
+                st.markdown(content)
+
+
+def _message_groups_latest_first(messages):
+    groups = []
+    current_group = []
+    for message in messages or []:
+        if message.get("role") == "user" and current_group:
+            groups.append(current_group)
+            current_group = [message]
+        else:
+            current_group.append(message)
+    if current_group:
+        groups.append(current_group)
+    return list(reversed(groups))
 
 
 def _submit_question(api_base, session_id, question, top_k, history_turns, answer_backend, answer_model, qa_device):

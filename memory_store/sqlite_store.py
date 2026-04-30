@@ -600,13 +600,13 @@ class SurveillanceMemoryStore:
                 """
                 SELECT role, content, created_at, metadata_json
                 FROM (
-                    SELECT role, content, created_at, metadata_json
+                    SELECT rowid AS message_rowid, role, content, created_at, metadata_json
                     FROM chat_messages
                     WHERE session_id = ?
-                    ORDER BY created_at DESC
+                    ORDER BY created_at DESC, rowid DESC
                     LIMIT ?
                 )
-                ORDER BY created_at ASC
+                ORDER BY created_at ASC, message_rowid ASC
                 """,
                 (session_id, int(limit)),
             ).fetchall()
