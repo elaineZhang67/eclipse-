@@ -682,6 +682,22 @@ def _inject_css():
             margin: 0.2rem 0 1rem;
             padding: 1.1rem;
         }
+        .ask-top-shell {
+            background: rgba(255, 252, 246, 0.78);
+            border: 1px solid var(--line);
+            border-radius: 24px;
+            box-shadow: 0 10px 30px rgba(23, 36, 29, 0.055);
+            margin: 0 0 0.95rem;
+            padding: 0.74rem 0.8rem 0.18rem;
+        }
+        .ask-top-label {
+            color: var(--muted);
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            margin: 0 0 0.44rem 0.1rem;
+            text-transform: uppercase;
+        }
         .empty-chat-kicker {
             color: var(--green);
             font-size: 0.68rem;
@@ -1270,6 +1286,21 @@ def _render_messages(messages):
             st.markdown(content)
 
 
+def _submit_question(api_base, session_id, question, top_k, history_turns, answer_backend, answer_model, qa_device):
+    with st.spinner("Retrieving evidence and generating answer..."):
+        _ask(
+            api_base=api_base,
+            session_id=session_id,
+            question=question,
+            top_k=top_k,
+            history_turns=history_turns,
+            answer_backend=answer_backend,
+            answer_model=answer_model.strip(),
+            device=qa_device,
+        )
+    st.rerun()
+
+
 def _render_upload(api_base, pipeline_device, track_backend, object_backend, summary_backend, llm_model):
     left, right = st.columns([1.15, 0.85], gap="large")
     with left:
@@ -1638,30 +1669,44 @@ def main():
             unsafe_allow_html=True,
         )
         messages = _load_messages(api_base, session_id)
-        _render_messages(messages)
 
         if status in PROCESSING_STATUSES:
+            _render_messages(messages)
             st.info("Processing video. Chat will unlock when the pipeline is complete.")
             time.sleep(2)
             st.rerun()
         elif status == "failed":
+            _render_messages(messages)
             st.error("Pipeline failed. Start a new chat after checking the backend log.")
         elif status == "completed":
-            question = st.chat_input("Ask about this video")
-            if question:
-                with st.spinner("Retrieving evidence and generating answer..."):
-                    _ask(
-                        api_base=api_base,
-                        session_id=session_id,
-                        question=question,
-                        top_k=top_k,
-                        history_turns=history_turns,
-                        answer_backend=answer_backend,
-                        answer_model=answer_model.strip(),
-                        device=qa_device,
-                    )
-                st.rerun()
+            st.markdown(
+                '<div class="ask-top-shell"><div class="ask-top-label">Ask question</div>',
+                unsafe_allow_html=True,
+            )
+            with st.form("ask_form_{session_id}".format(session_id=session_id), clear_on_submit=True):
+                question = st.text_input(
+                    "Question",
+                    label_visibility="collapsed",
+                    placeholder="Ask about this video, for example: what is the woman in green doing?",
+                )
+                submitted = st.form_submit_button("Ask", use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+            if submitted and question.strip():
+                _submit_question(
+                    api_base=api_base,
+                    session_id=session_id,
+                    question=question.strip(),
+                    top_k=top_k,
+                    history_turns=history_turns,
+                    answer_backend=answer_backend,
+                    answer_model=answer_model,
+                    qa_device=qa_device,
+                )
+            elif submitted:
+                st.warning("Type a question first.")
+            _render_messages(messages)
         else:
+            _render_messages(messages)
             st.warning("Unknown session status: {status}".format(status=status))
 
 
