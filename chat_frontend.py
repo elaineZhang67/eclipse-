@@ -2,7 +2,13 @@ import json
 import os
 import time
 import html
+from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - Python < 3.9 fallback
+    ZoneInfo = None
 
 import requests
 import streamlit as st
@@ -15,10 +21,71 @@ DEFAULT_TRACK_BACKEND = "yolo"
 DEFAULT_OBJECT_BACKEND = "sam3"
 VIDEO_TYPES = ["mp4", "mov", "avi", "mkv", "webm"]
 PROCESSING_STATUSES = {"uploaded", "queued", "running"}
+DISPLAY_TIMEZONE = os.environ.get("ECLIPSE_DISPLAY_TZ", "America/New_York")
 
 
 def _esc(value):
     return html.escape(str(value or ""))
+
+
+def _display_tz():
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(DISPLAY_TIMEZONE)
+        except Exception:
+            pass
+    return datetime.now().astimezone().tzinfo
+
+
+def _parse_timestamp(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _format_timestamp(value):
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return str(value or "")
+    local_dt = parsed.astimezone(_display_tz())
+    hour = local_dt.strftime("%I").lstrip("0") or "0"
+    return "{month} {day}, {hour}:{minute} {ampm} {tz}".format(
+        month=local_dt.strftime("%b"),
+        day=local_dt.day,
+        hour=hour,
+        minute=local_dt.strftime("%M"),
+        ampm=local_dt.strftime("%p"),
+        tz=local_dt.strftime("%Z"),
+    )
+
+
+def _latest_activity_timestamp(session, messages=None):
+    candidates = [
+        session.get("updated_at"),
+        session.get("created_at"),
+        (session.get("processing_job") or {}).get("updated_at"),
+    ]
+    candidates.extend(message.get("created_at") for message in messages or [])
+
+    latest = None
+    latest_raw = None
+    for candidate in candidates:
+        parsed = _parse_timestamp(candidate)
+        if parsed is None:
+            continue
+        if latest is None or parsed > latest:
+            latest = parsed
+            latest_raw = candidate
+    return latest_raw or session.get("updated_at") or ""
 
 
 def _inject_css():
@@ -1163,7 +1230,7 @@ def _history_title(session):
 def _history_meta(session):
     status = session.get("status", "unknown")
     camera = session.get("camera_id") or session.get("video_id") or "video"
-    updated = str(session.get("updated_at") or "")[:16]
+    updated = _format_timestamp(session.get("updated_at"))
     parts = [status, _shorten(camera, limit=18)]
     if updated:
         parts.append(updated)
@@ -1178,7 +1245,7 @@ def _status_class(status):
     return "status-processing"
 
 
-def _render_status(session):
+def _render_status(session, messages=None):
     job = session.get("processing_job") or {}
     status = session.get("status", "unknown")
     job_status = job.get("status")
@@ -1221,7 +1288,7 @@ def _render_status(session):
             job_id=_esc(job_id),
             job_status=_esc(job_status or status),
             run_id=_esc(run_id),
-            updated=_esc(session.get("updated_at", "")),
+            updated=_esc(_format_timestamp(_latest_activity_timestamp(session, messages=messages))),
         ),
         unsafe_allow_html=True,
     )
@@ -1653,7 +1720,8 @@ def main():
             st.rerun()
         return
 
-    _render_status(session)
+    messages = _load_messages(api_base, session_id)
+    _render_status(session, messages=messages)
 
     status = session.get("status")
     left, right = st.columns([1.35, 1], gap="large")
@@ -1678,8 +1746,6 @@ def main():
             """.format(status=_esc("Ready" if status == "completed" else status or "Unknown")),
             unsafe_allow_html=True,
         )
-        messages = _load_messages(api_base, session_id)
-
         if status in PROCESSING_STATUSES:
             _render_messages(messages)
             st.info("Processing video. Chat will unlock when the pipeline is complete.")

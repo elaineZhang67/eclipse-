@@ -584,6 +584,14 @@ class SurveillanceMemoryStore:
                     json.dumps(metadata or {}, ensure_ascii=True),
                 ),
             )
+            conn.execute(
+                """
+                UPDATE chat_sessions
+                SET updated_at = ?
+                WHERE session_id = ?
+                """,
+                (created_at, session_id),
+            )
         return message_id
 
     def load_messages(self, session_id, limit=12):
