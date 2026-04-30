@@ -100,7 +100,8 @@ def _resolve_followup_question(question, history):
         if refs:
             return (
                 "{question}\n"
-                "Likely referent from prior turn: {track_refs}."
+                "Internal likely referent from prior turn: {track_refs}. "
+                "Use this only for retrieval continuity; do not expose these internal IDs unless the user asks for IDs."
             ).format(
                 question=question,
                 track_refs=", ".join(refs),
