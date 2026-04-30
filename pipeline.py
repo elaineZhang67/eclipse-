@@ -353,7 +353,7 @@ def _resize_long_edge(image_bgr, max_long_edge):
     return cv2.resize(image_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
 
-def _sample_video_frames(video_path, max_frames=16, long_edge=768):
+def _sample_video_frames(video_path, max_frames=32, long_edge=768):
     max_frames = max(0, int(max_frames or 0))
     if max_frames <= 0:
         return []
@@ -523,7 +523,7 @@ def run_pipeline(args):
     summarizer = None
     visual_evidence = None
     if args.use_llm:
-        scene_summary_frame_count = getattr(args, "scene_summary_video_frames", 16)
+        scene_summary_frame_count = getattr(args, "scene_summary_video_frames", 32)
         summarizer = build_summarizer(
             backend=getattr(args, "summary_backend", "text"),
             model_id=getattr(args, "llm_model", None),
@@ -780,7 +780,7 @@ def run_pipeline(args):
             "summarize_event_windows": bool(getattr(args, "summarize_event_windows", True)),
             "llm_window_summaries": bool(getattr(args, "llm_window_summaries", False)),
             "enable_interval_summaries": bool(getattr(args, "enable_interval_summaries", False)),
-            "scene_summary_video_frames": getattr(args, "scene_summary_video_frames", 16),
+            "scene_summary_video_frames": getattr(args, "scene_summary_video_frames", 32),
             "scene_summary_video_long_edge": getattr(args, "scene_summary_video_long_edge", 768),
             "tracker": args.tracker,
             "track_backend": track_backend,
@@ -828,7 +828,7 @@ def run_pipeline(args):
     if summarizer is not None:
         video_frames = _sample_video_frames(
             getattr(args, "video", ""),
-            max_frames=getattr(args, "scene_summary_video_frames", 16),
+            max_frames=getattr(args, "scene_summary_video_frames", 32),
             long_edge=getattr(args, "scene_summary_video_long_edge", 768),
         )
         if video_frames:

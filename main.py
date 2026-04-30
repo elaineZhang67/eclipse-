@@ -140,7 +140,7 @@ def parse_args():
     p.add_argument(
         "--scene_summary_video_frames",
         type=int,
-        default=16,
+        default=32,
         help="number of uniformly sampled full-video frames to pass to the scene summarizer",
     )
     p.add_argument(

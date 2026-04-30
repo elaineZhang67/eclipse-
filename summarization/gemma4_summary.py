@@ -13,6 +13,32 @@ from summarization.qwen_summary import QwenVLSummarizer, _move_to_device
 DEFAULT_GEMMA4_MODEL_ID = "google/gemma-4-E4B-it"
 
 
+def _resample_video_frames(video_frames, target_count):
+    video_frames = list(video_frames or [])
+    target_count = int(target_count or 0)
+    if target_count <= 0 or not video_frames:
+        return video_frames
+    if len(video_frames) == target_count:
+        return video_frames
+    if len(video_frames) == 1:
+        return [video_frames[0] for _ in range(target_count)]
+    if target_count == 1:
+        return [video_frames[len(video_frames) // 2]]
+
+    return [
+        video_frames[
+            max(
+                0,
+                min(
+                    len(video_frames) - 1,
+                    int(round(idx * float(len(video_frames) - 1) / float(target_count - 1))),
+                ),
+            )
+        ]
+        for idx in range(target_count)
+    ]
+
+
 def _load_gemma4_model(model_id, device):
     try:
         from transformers import Gemma4ForConditionalGeneration
@@ -114,6 +140,9 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
             return self._generate(prompt, image_arrays=None, max_new_tokens=max_new_tokens)
 
         try:
+            target_frames = getattr(getattr(self.processor, "video_processor", None), "num_frames", None)
+            if target_frames:
+                video_frames = _resample_video_frames(video_frames, int(target_frames))
             video_array = np.stack(video_frames, axis=0)
             messages = [
                 {

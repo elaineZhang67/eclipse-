@@ -38,7 +38,7 @@ class PipelineOptions(BaseModel):
     event_window_sec: float = 5.0
     long_summary_sec: float = 60.0
     enable_interval_summaries: bool = False
-    scene_summary_video_frames: int = 16
+    scene_summary_video_frames: int = 32
     scene_summary_video_long_edge: int = 768
     summarize_event_windows: bool = True
     llm_window_summaries: bool = False

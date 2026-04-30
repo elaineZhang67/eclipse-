@@ -83,7 +83,32 @@ def _format_chat_history(conversation_history):
     return "\n".join(lines) if lines else "No prior conversation."
 
 
-def _compact_scene_packet(event_log, track_payload, max_events=40):
+def _truncate_text(value, max_chars=700):
+    text = " ".join(str(value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _compact_profile(profile):
+    if not isinstance(profile, dict):
+        return _truncate_text(profile, max_chars=300) if profile else None
+
+    carried_objects = []
+    for item in profile.get("carried_objects", []) or []:
+        if isinstance(item, dict) and item.get("label"):
+            carried_objects.append(item.get("label"))
+        elif item:
+            carried_objects.append(str(item))
+
+    return {
+        "appearance": profile.get("appearance"),
+        "carried_objects": carried_objects[:8],
+        "behavior_overview": _truncate_text(profile.get("behavior_overview"), max_chars=300),
+    }
+
+
+def _compact_scene_packet(event_log, track_payload, max_events=20):
     events = []
     for window in event_log or []:
         for event in window.get("events", []):
@@ -106,9 +131,9 @@ def _compact_scene_packet(event_log, track_payload, max_events=40):
                 "first_seen": metadata.get("first_seen"),
                 "last_seen": metadata.get("last_seen"),
                 "objects": list(metadata.get("objects", [])),
-                "profile": payload.get("profile"),
-                "summary": payload.get("summary"),
-                "segments": list(payload.get("segments", []))[:20],
+                "profile": _compact_profile(payload.get("profile")),
+                "summary": _truncate_text(payload.get("summary"), max_chars=700),
+                "segments": list(payload.get("segments", []))[:8],
             }
         )
 
