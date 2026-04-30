@@ -312,6 +312,13 @@ def _inject_css():
             margin-bottom: 0.16rem;
             text-transform: uppercase;
         }
+        .hero-answer-meta {
+            color: var(--muted);
+            display: block;
+            font-size: 0.68rem;
+            font-weight: 680;
+            margin-top: 0.32rem;
+        }
         .section-title {
             color: var(--ink);
             font-size: 0.78rem;
@@ -567,6 +574,24 @@ def _inject_css():
             left: 0.86rem;
             padding: 0.48rem 0.62rem;
             position: absolute;
+        }
+        .console-live-title {
+            color: #fff8e9;
+            font-size: 0.9rem;
+            font-weight: 820;
+            line-height: 1.22;
+            max-width: 82%;
+            position: relative;
+            z-index: 1;
+        }
+        .console-live-meta {
+            color: #9eb5aa;
+            font-size: 0.72rem;
+            line-height: 1.38;
+            margin-top: 0.38rem;
+            max-width: 78%;
+            position: relative;
+            z-index: 1;
         }
         .metric-strip {
             display: grid;
@@ -1148,6 +1173,10 @@ def _load_messages(api_base, session_id):
     return payload.get("messages", [])
 
 
+def _load_run(api_base, run_id):
+    return _api_request("GET", api_base, "/developer/runs/{run_id}".format(run_id=run_id), timeout=(5, 60))
+
+
 def _upload_video(
     api_base,
     uploaded_file,
@@ -1220,6 +1249,154 @@ def _shorten(value, limit=36):
     if len(text) <= limit:
         return text
     return text[: limit - 3].rstrip() + "..."
+
+
+def _latest_assistant_message(messages):
+    for message in reversed(messages or []):
+        if message.get("role") == "assistant" and str(message.get("content") or "").strip():
+            return str(message.get("content")).strip()
+    return ""
+
+
+def _select_preview_session(sessions, active_session_id=None):
+    sessions = list(sessions or [])
+    if active_session_id:
+        for session in sessions:
+            if session.get("session_id") == active_session_id:
+                return session
+    for session in sessions:
+        if session.get("status") == "completed":
+            return session
+    return sessions[0] if sessions else None
+
+
+def _backend_preview(api_base, active_session_id=None):
+    fallback = {
+        "connected": False,
+        "status": "Backend offline",
+        "chip": "backend unavailable",
+        "title": "No live backend data yet",
+        "source": "Status",
+        "text": "Start the backend or upload a video to populate this preview with real session evidence.",
+        "meta": "Waiting for /chat/sessions",
+        "session_id": "none",
+        "run_id": "pending",
+        "tracks": "0",
+        "windows": "0",
+        "model": DEFAULT_PIPELINE_LLM_MODEL,
+    }
+    try:
+        sessions = _list_sessions(api_base)
+    except Exception as exc:
+        fallback["text"] = str(exc)
+        return fallback
+
+    session = _select_preview_session(sessions, active_session_id=active_session_id)
+    if not session:
+        fallback.update(
+            {
+                "connected": True,
+                "status": "No sessions",
+                "chip": "backend connected",
+                "title": "No processed video yet",
+                "text": "Upload a video first. This panel will then show the latest real scene summary or answer.",
+                "meta": "Backend connected",
+            }
+        )
+        return fallback
+
+    messages = []
+    try:
+        messages = _load_messages(api_base, session["session_id"])
+    except Exception:
+        messages = []
+
+    run = None
+    results = {}
+    if session.get("run_id"):
+        try:
+            run = _load_run(api_base, session["run_id"])
+            results = run.get("results", {}) if run else {}
+        except Exception:
+            results = {}
+
+    stats = results.get("stats", {}) or {}
+    config = results.get("config", {}) or {}
+    latest_answer = _latest_assistant_message(messages)
+    scene_summary = str(results.get("scene_summary") or "").strip()
+    if latest_answer:
+        source = "Latest answer"
+        text = latest_answer
+    elif scene_summary:
+        source = "Scene summary"
+        text = scene_summary
+    elif session.get("status") in PROCESSING_STATUSES:
+        source = "Processing"
+        text = "The selected video is still processing. This preview will update after the pipeline finishes."
+    else:
+        source = "Session"
+        text = "This session has no answer messages yet. Ask a question to generate a preview from backend evidence."
+
+    label = session.get("label") or session.get("video_id") or session.get("session_id")
+    updated = _format_timestamp(_latest_activity_timestamp(session, messages=messages))
+    return {
+        "connected": True,
+        "status": str(session.get("status") or "unknown").replace("_", " "),
+        "chip": "live backend",
+        "title": _shorten(label, limit=44),
+        "source": source,
+        "text": _shorten(text, limit=190),
+        "meta": "{updated} / {camera}".format(
+            updated=updated or "no timestamp",
+            camera=session.get("camera_id") or "camera",
+        ),
+        "session_id": session.get("session_id") or "none",
+        "run_id": session.get("run_id") or "pending",
+        "tracks": str(stats.get("identity_tracks") or stats.get("tracks") or 0),
+        "windows": str(stats.get("vl_window_captions") or stats.get("window_summaries") or 0),
+        "model": _shorten(config.get("llm_model") or DEFAULT_PIPELINE_LLM_MODEL, limit=28),
+    }
+
+
+def _render_topbar(preview):
+    st.markdown(
+        """
+        <div class="topbar">
+          <div>
+            <div class="kicker">Eclipse Video Intelligence</div>
+            <div class="title">Turn surveillance video into a searchable conversation.</div>
+            <div class="muted">Upload a clip, wait for the pipeline to finish, then ask grounded questions about what happened.</div>
+            <div class="hero-copy-row">
+              <div class="hero-pill">{tracks} tracks</div>
+              <div class="hero-pill">{windows} VLM windows</div>
+              <div class="hero-pill">{status}</div>
+            </div>
+          </div>
+          <div class="top-actions">
+            <div class="hero-visual">
+              <div class="hero-screen">
+                <div class="hero-screen-label">{screen_label}</div>
+                <div class="scan-line"></div>
+              </div>
+              <div class="hero-answer">
+                <span>{source}</span>{text}
+                <span class="hero-answer-meta">{title} / {meta}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        """.format(
+            tracks=_esc(preview.get("tracks", "0")),
+            windows=_esc(preview.get("windows", "0")),
+            status=_esc(preview.get("status", "unknown")),
+            screen_label=_esc(preview.get("status", "unknown")),
+            source=_esc(preview.get("source", "Preview")),
+            text=_esc(preview.get("text", "")),
+            title=_esc(preview.get("title", "")),
+            meta=_esc(preview.get("meta", "")),
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def _history_title(session):
@@ -1378,7 +1555,7 @@ def _submit_question(api_base, session_id, question, top_k, history_turns, answe
     st.rerun()
 
 
-def _render_upload(api_base, pipeline_device, track_backend, object_backend, summary_backend, llm_model):
+def _render_upload(api_base, pipeline_device, track_backend, object_backend, summary_backend, llm_model, preview):
     left, right = st.columns([1.15, 0.85], gap="large")
     with left:
         st.markdown('<div class="panel studio-panel">', unsafe_allow_html=True)
@@ -1480,31 +1657,31 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
                   <div class="console-light"></div>
                   <div class="console-light"></div>
                 </div>
-                <div class="console-chip">live config</div>
+                <div class="console-chip">{chip}</div>
               </div>
               <div class="section-title">Pipeline Console</div>
-              <div class="panel-copy">Current runtime settings for the next upload.</div>
+              <div class="panel-copy">Live backend preview from the latest available video session.</div>
               <div class="console-preview">
-                <div class="object-box object-person">person</div>
-                <div class="object-box object-bag">object</div>
-                <div class="console-caption">SAM3 tracks visual evidence before chat begins</div>
+                <div class="console-live-title">{preview_title}</div>
+                <div class="console-live-meta">{preview_meta}</div>
+                <div class="console-caption">{preview_source}: {preview_text}</div>
               </div>
               <div class="metric-strip">
                 <div class="metric">
-                  <div class="metric-value">{pipeline_device}</div>
-                  <div class="metric-label">Device</div>
+                  <div class="metric-value">{tracks}</div>
+                  <div class="metric-label">Tracks</div>
                 </div>
                 <div class="metric">
-                  <div class="metric-value">{track_backend}</div>
-                  <div class="metric-label">People</div>
+                  <div class="metric-value">{windows}</div>
+                  <div class="metric-label">VLM windows</div>
                 </div>
                 <div class="metric">
-                  <div class="metric-value">{object_backend}</div>
-                  <div class="metric-label">Objects</div>
+                  <div class="metric-value">{session_id}</div>
+                  <div class="metric-label">Session</div>
                 </div>
                 <div class="metric">
-                  <div class="metric-value">{summary_backend}</div>
-                  <div class="metric-label">Summary</div>
+                  <div class="metric-value">{run_id}</div>
+                  <div class="metric-label">Run</div>
                 </div>
                 <div class="metric">
                   <div class="metric-value">{model}</div>
@@ -1540,7 +1717,7 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
                   <div class="detail-value">{api_base}</div>
                 </div>
                 <div class="detail-item">
-                  <div class="detail-label">Pipeline</div>
+                  <div class="detail-label">Next upload config</div>
                   <div class="detail-value">{pipeline_device} / people {track_backend} / objects {object_backend} / {summary_backend}</div>
                 </div>
                 <div class="detail-item">
@@ -1550,12 +1727,21 @@ def _render_upload(api_base, pipeline_device, track_backend, object_backend, sum
               </div>
             </div>
             """.format(
+                chip=_esc(preview.get("chip", "backend")),
+                preview_title=_esc(preview.get("title", "No session")),
+                preview_meta=_esc(preview.get("meta", "")),
+                preview_source=_esc(preview.get("source", "Preview")),
+                preview_text=_esc(preview.get("text", "")),
+                tracks=_esc(preview.get("tracks", "0")),
+                windows=_esc(preview.get("windows", "0")),
+                session_id=_esc(_shorten(preview.get("session_id", "none"), limit=14)),
+                run_id=_esc(_shorten(preview.get("run_id", "pending"), limit=14)),
                 api_base=_esc(api_base),
                 pipeline_device=_esc(pipeline_device),
                 track_backend=_esc(track_backend),
                 object_backend=_esc(object_backend),
                 summary_backend=_esc(summary_backend),
-                model=_esc(llm_model or DEFAULT_PIPELINE_LLM_MODEL),
+                model=_esc(preview.get("model") or llm_model or DEFAULT_PIPELINE_LLM_MODEL),
             ),
             unsafe_allow_html=True,
         )
@@ -1602,32 +1788,10 @@ def main():
     for key, value in sidebar_defaults.items():
         st.session_state.setdefault(key, value)
 
-    st.markdown(
-        """
-        <div class="topbar">
-          <div>
-            <div class="kicker">Eclipse Video Intelligence</div>
-            <div class="title">Turn surveillance video into a searchable conversation.</div>
-            <div class="muted">Upload a clip, wait for the pipeline to finish, then ask grounded questions about what happened.</div>
-            <div class="hero-copy-row">
-              <div class="hero-pill">SAM3 visual grounding</div>
-              <div class="hero-pill">Gemma4 video summaries</div>
-              <div class="hero-pill">Chat history per session</div>
-            </div>
-          </div>
-          <div class="top-actions">
-            <div class="hero-visual">
-              <div class="hero-screen">
-                <div class="hero-screen-label">processing complete</div>
-                <div class="scan-line"></div>
-              </div>
-              <div class="hero-answer"><span>Answer preview</span>"A person enters near the doorway, pauses by the object, then leaves the scene."</div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    api_base = st.session_state["api_base"]
+    active_session_id = _active_session_id()
+    backend_preview = _backend_preview(api_base, active_session_id=active_session_id)
+    _render_topbar(backend_preview)
 
     with st.sidebar:
         st.markdown(
@@ -1708,7 +1872,7 @@ def main():
 
     session_id = _active_session_id()
     if not session_id:
-        _render_upload(api_base, pipeline_device, track_backend, object_backend, summary_backend, llm_model)
+        _render_upload(api_base, pipeline_device, track_backend, object_backend, summary_backend, llm_model, backend_preview)
         return
 
     try:
