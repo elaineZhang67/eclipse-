@@ -646,14 +646,21 @@ def _inject_css():
             margin-top: 0.34rem;
             overflow-wrap: anywhere;
         }
-        .chat-shell {
-            min-height: 560px;
+        .chat-panel-head {
+            background:
+                radial-gradient(circle at 8% 0%, rgba(247, 188, 92, 0.18), transparent 13rem),
+                linear-gradient(135deg, rgba(255, 252, 246, 0.92), rgba(238, 247, 241, 0.84));
+            border: 1px solid var(--line);
+            border-radius: 26px;
+            box-shadow: var(--shadow-soft);
+            margin-bottom: 0.9rem;
+            padding: 1rem 1.08rem 0.92rem;
         }
         .chat-header {
             align-items: center;
             display: flex;
             justify-content: space-between;
-            margin-bottom: 0.7rem;
+            margin-bottom: 0.48rem;
         }
         .chat-status {
             background: var(--blue-soft);
@@ -666,14 +673,56 @@ def _inject_css():
         }
         .empty-chat {
             background:
-                radial-gradient(circle at 18% 20%, rgba(247, 188, 92, 0.24), transparent 10rem),
-                linear-gradient(135deg, rgba(255, 255, 255, 0.52), rgba(232, 244, 236, 0.66));
-            border: 1px dashed var(--line-strong);
-            border-radius: 22px;
+                radial-gradient(circle at 18% 12%, rgba(247, 188, 92, 0.2), transparent 11rem),
+                linear-gradient(135deg, rgba(255, 252, 246, 0.9), rgba(232, 244, 236, 0.78));
+            border: 1px solid rgba(36, 54, 43, 0.1);
+            border-radius: 26px;
+            box-shadow: var(--shadow-soft);
             color: var(--muted);
-            font-size: 0.9rem;
             margin: 0.2rem 0 1rem;
-            padding: 1.05rem 1.1rem;
+            padding: 1.1rem;
+        }
+        .empty-chat-kicker {
+            color: var(--green);
+            font-size: 0.68rem;
+            font-weight: 820;
+            letter-spacing: 0.08em;
+            margin-bottom: 0.3rem;
+            text-transform: uppercase;
+        }
+        .empty-chat-title {
+            color: var(--ink);
+            font-size: 1.35rem;
+            font-weight: 820;
+            letter-spacing: -0.02em;
+            line-height: 1.15;
+            margin-bottom: 0.42rem;
+        }
+        .empty-chat-copy {
+            color: var(--muted);
+            font-size: 0.92rem;
+            line-height: 1.5;
+            margin-bottom: 0.85rem;
+        }
+        .empty-chat-grid {
+            display: grid;
+            gap: 0.55rem;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .empty-chat-chip {
+            background: rgba(255, 255, 255, 0.62);
+            border: 1px solid rgba(36, 54, 43, 0.1);
+            border-radius: 16px;
+            color: var(--ink);
+            font-size: 0.82rem;
+            font-weight: 680;
+            line-height: 1.35;
+            padding: 0.72rem 0.78rem;
+        }
+        @media (max-width: 900px) {
+            .empty-chat-grid {
+                grid-template-columns: 1fr;
+            }
         }
         .preview-title {
             align-items: center;
@@ -1194,7 +1243,25 @@ def _render_video(session):
 
 def _render_messages(messages):
     if not messages:
-        st.markdown('<div class="empty-chat">Ready for questions once processing is complete.</div>', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="empty-chat">
+              <div class="empty-chat-kicker">Evidence is ready</div>
+              <div class="empty-chat-title">Ask this video like a chat.</div>
+              <div class="empty-chat-copy">
+                The backend has already processed the clip. Questions now retrieve the relevant 5-second VLM captions,
+                track profiles, keyframes, and timeline evidence before Gemma4 answers.
+              </div>
+              <div class="empty-chat-grid">
+                <div class="empty-chat-chip">What is the woman in the green shirt doing?</div>
+                <div class="empty-chat-chip">Who is near the stacked white dishes?</div>
+                <div class="empty-chat-chip">What happens around 30 seconds?</div>
+                <div class="empty-chat-chip">Which people interact with Person 2?</div>
+              </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         return
     for message in messages:
         role = message.get("role", "assistant")
@@ -1558,12 +1625,14 @@ def main():
         st.markdown("</div>", unsafe_allow_html=True)
 
     with left:
-        st.markdown('<div class="panel chat-shell">', unsafe_allow_html=True)
         st.markdown(
             """
-            <div class="chat-header">
-              <div class="section-title">Chat</div>
-              <div class="chat-status">{status}</div>
+            <div class="chat-panel-head">
+              <div class="chat-header">
+                <div class="section-title">Chat</div>
+                <div class="chat-status">{status}</div>
+              </div>
+              <div class="panel-copy">Ask after processing is complete. Answers are grounded in retrieved windows, track evidence, and sampled keyframes.</div>
             </div>
             """.format(status=_esc("Ready" if status == "completed" else status or "Unknown")),
             unsafe_allow_html=True,
@@ -1594,7 +1663,6 @@ def main():
                 st.rerun()
         else:
             st.warning("Unknown session status: {status}".format(status=status))
-        st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
