@@ -1891,11 +1891,9 @@ def main():
     left, right = st.columns([1.35, 1], gap="large")
 
     with right:
-        st.markdown('<div class="panel">', unsafe_allow_html=True)
         _render_video(session)
         if session.get("error"):
             st.error(session["error"])
-        st.markdown("</div>", unsafe_allow_html=True)
 
     with left:
         st.markdown(
