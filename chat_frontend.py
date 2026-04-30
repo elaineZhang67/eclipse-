@@ -698,6 +698,16 @@ def _inject_css():
             margin: 0 0 0.44rem 0.1rem;
             text-transform: uppercase;
         }
+        .ask-top-shell div[data-testid="InputInstructions"] {
+            display: none;
+        }
+        .ask-top-shell div[data-testid="stTextInput"] {
+            margin-bottom: 0.72rem;
+        }
+        .ask-top-shell div[data-testid="stTextInput"] input {
+            min-height: 3.1rem;
+            padding-right: 1rem !important;
+        }
         .empty-chat-kicker {
             color: var(--green);
             font-size: 0.68rem;
