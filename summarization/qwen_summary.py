@@ -252,7 +252,8 @@ class QwenSummarizer:
             visual_instruction = (
                 "The answer also has visual keyframes sampled from the retrieved windows. "
                 "Use those images for visible appearance, spatial layout, and fine-grained visual details; "
-                "use retrieved context for track IDs, timestamps, and structured events.\n"
+                "use retrieved context for track IDs, timestamps, and structured events. "
+                "If track profiles or summaries conflict with the sampled keyframes, trust the keyframes for visible details.\n"
             )
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
@@ -481,7 +482,8 @@ class QwenVLSummarizer:
             visual_instruction = (
                 "The images are keyframes sampled from the retrieved windows after RAG. "
                 "Use images for visible appearance, spatial layout, and fine-grained visual details; "
-                "use retrieved context for track IDs, timestamps, and structured events.\n"
+                "use retrieved context for track IDs, timestamps, and structured events. "
+                "If track profiles or summaries conflict with the sampled keyframes, trust the keyframes for visible details.\n"
             )
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
