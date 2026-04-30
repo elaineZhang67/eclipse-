@@ -20,6 +20,8 @@ _QUERY_EXPANSIONS = {
     "enter": ["entered", "entry", "arrive", "arrived"],
 }
 
+_WINDOW_DOC_TYPES = {"window_summary", "window"}
+
 
 @lru_cache(maxsize=1)
 def _embedding_model():
@@ -54,8 +56,276 @@ def _extract_track_ids(text):
     return {int(item) for item in re.findall(r"\btrack\s+(\d+)\b", str(text).lower())}
 
 
+def _extract_person_numbers(text):
+    return {int(item) for item in re.findall(r"\bperson\s+(\d+)\b", str(text).lower())}
+
+
+def _track_ids_for_person_refs(question, documents):
+    person_numbers = _extract_person_numbers(question)
+    if not person_numbers:
+        return set()
+
+    track_ids = set()
+    for person_number in person_numbers:
+        pattern = re.compile(
+            r"\bperson\s+{person_number}\s+\(track\s+(\d+)\)".format(person_number=int(person_number)),
+            re.IGNORECASE,
+        )
+        for document in documents or []:
+            for match in pattern.findall(str(document.get("text", ""))):
+                track_ids.add(int(match))
+    return track_ids
+
+
 def _extract_time_mentions(text):
-    return [float(item) for item in re.findall(r"\b(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds)\b", str(text).lower())]
+    return [
+        float(item)
+        for item in re.findall(
+            r"(?<!\d)(\d+(?:\.\d+)?)\s*(?:s|sec|second|seconds|秒)",
+            str(text).lower(),
+        )
+    ]
+
+
+def _safe_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _overlaps(start_a, end_a, start_b, end_b):
+    if start_b is None and end_b is None:
+        return True
+    left_start = float("-inf") if start_a is None else _safe_float(start_a, float("-inf"))
+    left_end = float("inf") if end_a is None else _safe_float(end_a, float("inf"))
+    right_start = float("-inf") if start_b is None else _safe_float(start_b, float("-inf"))
+    right_end = float("inf") if end_b is None else _safe_float(end_b, float("inf"))
+    return max(left_start, right_start) < min(left_end, right_end)
+
+
+def _document_track_ids(document):
+    track_ids = set()
+    if document.get("track_id") is not None:
+        track_ids.add(int(document["track_id"]))
+    for key in ("track_ids", "active_tracks"):
+        for item in document.get(key, []) or []:
+            try:
+                track_ids.add(int(item))
+            except (TypeError, ValueError):
+                continue
+    track_ids.update(_extract_track_ids(document.get("text", "")))
+    return track_ids
+
+
+def _ordered_track_ids_from_documents(documents, seed_text=""):
+    ordered = []
+    seen = set()
+    for track_id in sorted(_extract_track_ids(seed_text)):
+        ordered.append(track_id)
+        seen.add(track_id)
+    for document in documents or []:
+        for track_id in sorted(_document_track_ids(document)):
+            if track_id in seen:
+                continue
+            ordered.append(track_id)
+            seen.add(track_id)
+    return ordered
+
+
+def _context_time_window(question, focus_start_sec=None, focus_end_sec=None, padding_sec=10.0):
+    focus_start = _safe_float(focus_start_sec)
+    focus_end = _safe_float(focus_end_sec)
+    if focus_start is None and focus_end is None:
+        time_mentions = _extract_time_mentions(question)
+        if not time_mentions:
+            return None, None, None, None
+        focus_start = min(time_mentions)
+        focus_end = max(time_mentions)
+    elif focus_start is None:
+        focus_start = focus_end
+    elif focus_end is None:
+        focus_end = focus_start
+
+    if focus_end < focus_start:
+        focus_start, focus_end = focus_end, focus_start
+
+    padding = max(0.0, float(padding_sec))
+    context_start = max(0.0, focus_start - padding)
+    context_end = focus_end + padding
+    return context_start, context_end, focus_start, focus_end
+
+
+def _doc_sort_key(document):
+    type_rank = {"stitched_track_timeline": 0, "window_summary": 1, "track": 2, "window": 3, "interval": 4}
+    return (
+        type_rank.get(document.get("type"), 9),
+        float(document.get("start") or 0.0),
+        int(document.get("track_id") or 0),
+    )
+
+
+def _doc_dedupe_key(document):
+    return (
+        document.get("type"),
+        document.get("run_id"),
+        document.get("camera_id"),
+        document.get("track_id"),
+        document.get("start"),
+        document.get("end"),
+        str(document.get("text", ""))[:120],
+    )
+
+
+def _dedupe_documents(documents):
+    deduped = []
+    seen = set()
+    for document in documents or []:
+        key = _doc_dedupe_key(document)
+        if key in seen:
+            continue
+        deduped.append(document)
+        seen.add(key)
+    return deduped
+
+
+def _dedupe_window_documents(documents):
+    deduped = []
+    seen = set()
+    for document in sorted(documents or [], key=_doc_sort_key):
+        if document.get("type") not in _WINDOW_DOC_TYPES:
+            deduped.append(document)
+            continue
+        key = (
+            document.get("run_id"),
+            document.get("camera_id"),
+            document.get("start"),
+            document.get("end"),
+        )
+        if key in seen:
+            continue
+        deduped.append(document)
+        seen.add(key)
+    return deduped
+
+
+def _compact_text(text, max_chars=1400):
+    text = " ".join(str(text or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max(0, max_chars - 3)].rstrip() + "..."
+
+
+def _display_name_from_text(track_id, text):
+    pattern = re.compile(r"\b(Person\s+\d+)\s+\(track\s+{track_id}\)".format(track_id=int(track_id)), re.IGNORECASE)
+    match = pattern.search(str(text or ""))
+    if match:
+        return match.group(1)
+    return "Person"
+
+
+def _select_time_context_documents(documents, context_start, context_end, track_ids=None, max_docs=6):
+    selected = []
+    wanted_track_ids = set(track_ids or [])
+    for document in documents or []:
+        if document.get("type") not in _WINDOW_DOC_TYPES:
+            continue
+        if not _overlaps(document.get("start"), document.get("end"), context_start, context_end):
+            continue
+        if wanted_track_ids and not (_document_track_ids(document) & wanted_track_ids):
+            continue
+        selected.append(document)
+
+    selected = _dedupe_window_documents(selected)
+    return selected[: max(0, int(max_docs))]
+
+
+def _find_track_document(documents, track_id):
+    for document in documents or []:
+        if document.get("type") == "track" and document.get("track_id") == int(track_id):
+            return document
+    return None
+
+
+def _build_track_timeline_document(
+    track_id,
+    documents,
+    context_start=None,
+    context_end=None,
+    focus_start=None,
+    focus_end=None,
+    max_windows=12,
+):
+    window_docs = [
+        document
+        for document in documents or []
+        if document.get("type") in _WINDOW_DOC_TYPES
+        and int(track_id) in _document_track_ids(document)
+        and _overlaps(document.get("start"), document.get("end"), context_start, context_end)
+    ]
+    window_docs = _dedupe_window_documents(window_docs)
+    if not window_docs:
+        return None
+
+    if focus_start is not None or focus_end is not None:
+        focus_center = _safe_float(focus_start if focus_start is not None else focus_end, 0.0)
+        if focus_end is not None and focus_start is not None:
+            focus_center = (float(focus_start) + float(focus_end)) / 2.0
+        window_docs.sort(
+            key=lambda document: (
+                abs(((float(document.get("start") or 0.0) + float(document.get("end") or 0.0)) / 2.0) - focus_center),
+                _doc_sort_key(document),
+            )
+        )
+        window_docs = sorted(window_docs[: max(1, int(max_windows))], key=_doc_sort_key)
+    else:
+        window_docs = sorted(window_docs, key=_doc_sort_key)[: max(1, int(max_windows))]
+
+    track_doc = _find_track_document(documents, track_id)
+    display_name = (
+        track_doc.get("display_name")
+        if track_doc is not None and track_doc.get("display_name")
+        else _display_name_from_text(track_id, " ".join(document.get("text", "") for document in window_docs))
+    )
+    track_ref = "{name} (track {track_id})".format(name=display_name, track_id=int(track_id))
+
+    timeline_lines = []
+    for document in window_docs:
+        timeline_lines.append(
+            "[{start}-{end}s] {text}".format(
+                start=document.get("start"),
+                end=document.get("end"),
+                text=_compact_text(document.get("text", ""), max_chars=650),
+            )
+        )
+
+    parts = [
+        "stitched track timeline for {track_ref}. This context links the same person across adjacent 5-second windows.".format(
+            track_ref=track_ref,
+        )
+    ]
+    if context_start is not None or context_end is not None:
+        parts.append(
+            "timeline context window {start} to {end} seconds around the requested time.".format(
+                start=context_start,
+                end=context_end,
+            )
+        )
+    if track_doc is not None:
+        parts.append("track-level evidence: {text}".format(text=_compact_text(track_doc.get("text", ""), max_chars=1400)))
+    parts.append("stitched window timeline: " + " | ".join(timeline_lines))
+
+    return {
+        "type": "stitched_track_timeline",
+        "track_id": int(track_id),
+        "track_ids": [int(track_id)],
+        "display_name": display_name,
+        "start": min(document.get("start") for document in window_docs),
+        "end": max(document.get("end") for document in window_docs),
+        "camera_id": window_docs[0].get("camera_id"),
+        "run_id": window_docs[0].get("run_id"),
+        "text": " ".join(parts),
+    }
 
 
 def _document_structural_boost(question, document):
@@ -64,7 +334,7 @@ def _document_structural_boost(question, document):
     boost = 0.0
 
     for track_id in _extract_track_ids(question):
-        if document.get("track_id") == track_id or "track {track_id}".format(track_id=track_id) in document.get("text", "").lower():
+        if track_id in _document_track_ids(document):
             boost += 2.0
 
     for t_sec in _extract_time_mentions(question):
@@ -350,6 +620,9 @@ class EventRAG:
                     "run_id": None if not source_meta else source_meta.get("run_id"),
                     "start": window_summary["start"],
                     "end": window_summary["end"],
+                    "active_tracks": list(window_summary.get("active_tracks", [])),
+                    "track_ids": list(window_summary.get("active_tracks", [])),
+                    "active_track_refs": active_track_refs,
                     "text": (
                         prefix +
                         "5-second window summary {start} to {end}. active people {tracks}. "
@@ -377,6 +650,9 @@ class EventRAG:
                     "run_id": None if not source_meta else source_meta.get("run_id"),
                     "start": interval["start"],
                     "end": interval["end"],
+                    "active_tracks": list(interval.get("active_tracks", [])),
+                    "track_ids": list(interval.get("active_tracks", [])),
+                    "active_track_refs": active_track_refs,
                     "text": (
                         prefix +
                         "interval {start} to {end}. active people {tracks}. objects {objects}. "
@@ -399,6 +675,7 @@ class EventRAG:
                     "camera_id": None if not source_meta else source_meta.get("camera_id"),
                     "run_id": None if not source_meta else source_meta.get("run_id"),
                     "track_id": int(track_id),
+                    "track_ids": [int(track_id)],
                     "start": payload.get("metadata", {}).get("first_seen"),
                     "end": payload.get("metadata", {}).get("last_seen"),
                     "display_name": _display_name(track_id, payload, alias_map),
@@ -423,6 +700,9 @@ class EventRAG:
                     "run_id": None if not source_meta else source_meta.get("run_id"),
                     "start": window["start"],
                     "end": window["end"],
+                    "active_tracks": list(window.get("active_tracks", [])),
+                    "track_ids": list(window.get("active_tracks", [])),
+                    "active_track_refs": active_track_refs,
                     "text": prefix + "window {start} to {end}. active people {tracks}. events {events}".format(
                         start=window["start"],
                         end=window["end"],
@@ -456,3 +736,72 @@ class EventRAG:
 
         scored.sort(key=lambda item: (-item[0], item[1].get("start") or 0.0))
         return [doc for _, doc in scored[: max(1, int(top_k))]]
+
+    def retrieve_with_stitching(
+        self,
+        question,
+        documents,
+        top_k=4,
+        focus_start_sec=None,
+        focus_end_sec=None,
+        time_padding_sec=10.0,
+        max_track_windows=12,
+        max_timeline_docs=3,
+    ):
+        base_limit = max(int(top_k), 8)
+        base_docs = self.retrieve(question, documents, top_k=base_limit)
+        context_start, context_end, focus_start, focus_end = _context_time_window(
+            question,
+            focus_start_sec=focus_start_sec,
+            focus_end_sec=focus_end_sec,
+            padding_sec=time_padding_sec,
+        )
+
+        time_docs = []
+        if context_start is not None or context_end is not None:
+            time_docs = _select_time_context_documents(
+                documents,
+                context_start,
+                context_end,
+                max_docs=max(6, int(top_k)),
+            )
+
+        ordered_track_ids = _ordered_track_ids_from_documents(
+            list(base_docs) + list(time_docs),
+            seed_text=question,
+        )
+        explicit_track_ids = sorted(_extract_track_ids(question) | _track_ids_for_person_refs(question, documents))
+        timeline_track_ids = explicit_track_ids or ordered_track_ids
+        if (context_start is not None or context_end is not None) and ordered_track_ids:
+            focused_time_docs = _select_time_context_documents(
+                documents,
+                context_start,
+                context_end,
+                track_ids=timeline_track_ids,
+                max_docs=max(6, int(top_k)),
+            )
+            if explicit_track_ids:
+                time_docs = focused_time_docs
+            else:
+                time_docs = _dedupe_documents(list(focused_time_docs) + list(time_docs))
+
+        timeline_docs = []
+        for track_id in timeline_track_ids[: max(0, int(max_timeline_docs))]:
+            timeline_doc = _build_track_timeline_document(
+                track_id,
+                documents,
+                context_start=context_start,
+                context_end=context_end,
+                focus_start=focus_start,
+                focus_end=focus_end,
+                max_windows=max_track_windows,
+            )
+            if timeline_doc is not None:
+                timeline_docs.append(timeline_doc)
+
+        combined = _dedupe_documents(_dedupe_window_documents(list(timeline_docs) + list(time_docs) + list(base_docs)))
+        if not combined:
+            return []
+
+        context_budget = max(int(top_k), 1) + len(timeline_docs) + min(len(time_docs), 6)
+        return combined[: max(context_budget, int(top_k))]

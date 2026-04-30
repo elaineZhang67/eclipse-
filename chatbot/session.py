@@ -140,7 +140,7 @@ class SurveillanceChatSession:
                 "last_track_refs": [],
             }
 
-        retrieved = self.rag.retrieve(resolved_question, documents, top_k=self.top_k)
+        retrieved = self.rag.retrieve_with_stitching(resolved_question, documents, top_k=self.top_k)
         history = self.history()
         if not retrieved:
             answer = (

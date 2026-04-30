@@ -236,27 +236,29 @@ class TimeframeQAService:
         session_id = request.session_id or uuid.uuid4().hex[:12]
         bundles = self._load_run_bundles(request)
         documents = self._build_documents(bundles)
-        documents = _filter_documents_by_time(
-            documents,
-            start_sec=request.start_sec,
-            end_sec=request.end_sec,
-        )
         history = self.store.load_messages(session_id, limit=request.history_turns)
         resolved_question = _resolve_followup_question(request.question, history)
-        retrieved = self.rag.retrieve(resolved_question, documents, top_k=request.top_k)
 
         timeframe = None
+        answer_question = resolved_question
         if request.start_sec is not None or request.end_sec is not None:
             timeframe = {"start_sec": request.start_sec, "end_sec": request.end_sec}
-            resolved_question = (
+            answer_question = (
                 "{question}\n"
-                "Only answer using evidence that overlaps the requested timeframe: "
-                "{start_sec} to {end_sec} seconds."
+                "The user is asking about the requested timeframe: {start_sec} to {end_sec} seconds. "
+                "Use adjacent stitched context only to understand continuity, but answer the timeframe directly."
             ).format(
                 question=resolved_question,
                 start_sec=request.start_sec,
                 end_sec=request.end_sec,
             )
+        retrieved = self.rag.retrieve_with_stitching(
+            resolved_question,
+            documents,
+            top_k=request.top_k,
+            focus_start_sec=request.start_sec,
+            focus_end_sec=request.end_sec,
+        )
 
         if not retrieved:
             answer = (
@@ -270,7 +272,7 @@ class TimeframeQAService:
                 request.device,
             )
             answer = summarizer.answer_question(
-                resolved_question,
+                answer_question,
                 retrieved,
                 conversation_history=history,
             )
@@ -288,7 +290,7 @@ class TimeframeQAService:
         return {
             "session_id": session_id,
             "answer": answer,
-            "resolved_question": resolved_question,
+            "resolved_question": answer_question,
             "retrieved_context": retrieved,
             "run_ids": [bundle["run_id"] for bundle in bundles if bundle is not None],
             "video_id": request.video_id,

@@ -765,7 +765,7 @@ def run_pipeline(args):
 
     if getattr(args, "question", None):
         documents = rag_builder.build_documents(event_log, all_track_payload, interval_outputs, window_outputs)
-        retrieved = rag_builder.retrieve(
+        retrieved = rag_builder.retrieve_with_stitching(
             getattr(args, "question", ""),
             documents,
             top_k=getattr(args, "question_top_k", 4),
