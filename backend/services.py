@@ -1,3 +1,4 @@
+import os
 import uuid
 from functools import lru_cache
 import re
@@ -6,6 +7,7 @@ from types import SimpleNamespace
 from backend.schemas import AskRequest, ChatAskRequest, PipelineOptions, ProcessVideoRequest
 from memory_store.sqlite_store import SurveillanceMemoryStore
 from retrieval.event_rag import EventRAG
+from summarization.qa_visual_context import collect_qa_visual_context
 
 
 _TRACK_PATTERN = re.compile(r"\btrack\s+(\d+)\b", re.IGNORECASE)
@@ -107,14 +109,30 @@ def _resolve_followup_question(question, history):
 
 
 @lru_cache(maxsize=4)
-def _cached_summarizer(backend, model_id, device):
+def _cached_summarizer(backend, model_id, device, max_scene_images=8):
     from summarization.qwen_summary import build_summarizer
 
     return build_summarizer(
         backend=backend,
         model_id=model_id or None,
         device=device,
+        max_scene_images=max_scene_images,
     )
+
+
+def _qa_max_visual_frames():
+    try:
+        return max(0, int(os.environ.get("SURVEILLANCE_QA_MAX_FRAMES", "8")))
+    except ValueError:
+        return 8
+
+
+def _qa_answer_model(backend, model_id):
+    backend = str(backend or "text").strip().lower()
+    model_id = str(model_id or "").strip()
+    if backend == "text" and ("gemma-4" in model_id.lower() or "gemma4" in model_id.lower()):
+        return ""
+    return model_id
 
 
 class PipelineJobService:
@@ -265,16 +283,31 @@ class TimeframeQAService:
                 "I could not find relevant processed evidence for that video/timeframe. "
                 "Make sure the developer backend has processed the video first, then ask again with a valid timeframe."
             )
+            visual_context = {"frames": [], "frame_count": 0, "candidate_windows": 0}
         else:
+            max_visual_frames = _qa_max_visual_frames()
+            answer_backend = str(request.answer_backend or "text").strip().lower()
+            visual_context = (
+                collect_qa_visual_context(retrieved, max_frames=max_visual_frames)
+                if answer_backend == "vl"
+                else {"frames": [], "frame_count": 0, "candidate_windows": 0}
+            )
             summarizer = _cached_summarizer(
                 request.answer_backend,
-                request.answer_model or "",
+                _qa_answer_model(request.answer_backend, request.answer_model),
                 request.device,
+                max_visual_frames,
+            )
+            visual_images = (
+                visual_context.get("images", [])
+                if getattr(summarizer, "uses_visual_inputs", False)
+                else []
             )
             answer = summarizer.answer_question(
                 answer_question,
                 retrieved,
                 conversation_history=history,
+                visual_evidence=visual_images,
             )
 
         metadata = {
@@ -283,6 +316,11 @@ class TimeframeQAService:
             "camera_id": request.camera_id,
             "timeframe": timeframe,
             "retrieved_context": retrieved,
+            "visual_context": {
+                "frames": visual_context.get("frames", []),
+                "frame_count": visual_context.get("frame_count", 0),
+                "candidate_windows": visual_context.get("candidate_windows", 0),
+            },
         }
         self.store.append_message(session_id, "user", request.question, metadata=metadata)
         self.store.append_message(session_id, "assistant", answer, metadata=metadata)
@@ -295,6 +333,7 @@ class TimeframeQAService:
             "run_ids": [bundle["run_id"] for bundle in bundles if bundle is not None],
             "video_id": request.video_id,
             "timeframe": timeframe,
+            "visual_context": metadata["visual_context"],
         }
 
 
@@ -348,7 +387,7 @@ class ChatSessionService:
             session_id=session_id,
             top_k=payload.get("top_k", 4),
             history_turns=payload.get("history_turns", 8),
-            answer_backend=payload.get("answer_backend", "text"),
+            answer_backend=payload.get("answer_backend", "vl"),
             answer_model=payload.get("answer_model"),
             device=payload.get("device", "auto"),
         )

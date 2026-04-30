@@ -324,6 +324,16 @@ def _build_track_timeline_document(
         "end": max(document.get("end") for document in window_docs),
         "camera_id": window_docs[0].get("camera_id"),
         "run_id": window_docs[0].get("run_id"),
+        "video_path": window_docs[0].get("video_path"),
+        "windows": [
+            {
+                "start": document.get("start"),
+                "end": document.get("end"),
+                "video_path": document.get("video_path"),
+                "run_id": document.get("run_id"),
+            }
+            for document in window_docs
+        ],
         "text": " ".join(parts),
     }
 
@@ -618,6 +628,7 @@ class EventRAG:
                     "type": "window_summary",
                     "camera_id": None if not source_meta else source_meta.get("camera_id"),
                     "run_id": None if not source_meta else source_meta.get("run_id"),
+                    "video_path": None if not source_meta else source_meta.get("video_path"),
                     "start": window_summary["start"],
                     "end": window_summary["end"],
                     "active_tracks": list(window_summary.get("active_tracks", [])),
@@ -648,6 +659,7 @@ class EventRAG:
                     "type": "interval",
                     "camera_id": None if not source_meta else source_meta.get("camera_id"),
                     "run_id": None if not source_meta else source_meta.get("run_id"),
+                    "video_path": None if not source_meta else source_meta.get("video_path"),
                     "start": interval["start"],
                     "end": interval["end"],
                     "active_tracks": list(interval.get("active_tracks", [])),
@@ -674,6 +686,7 @@ class EventRAG:
                     "type": "track",
                     "camera_id": None if not source_meta else source_meta.get("camera_id"),
                     "run_id": None if not source_meta else source_meta.get("run_id"),
+                    "video_path": None if not source_meta else source_meta.get("video_path"),
                     "track_id": int(track_id),
                     "track_ids": [int(track_id)],
                     "start": payload.get("metadata", {}).get("first_seen"),
@@ -698,6 +711,7 @@ class EventRAG:
                     "type": "window",
                     "camera_id": None if not source_meta else source_meta.get("camera_id"),
                     "run_id": None if not source_meta else source_meta.get("run_id"),
+                    "video_path": None if not source_meta else source_meta.get("video_path"),
                     "start": window["start"],
                     "end": window["end"],
                     "active_tracks": list(window.get("active_tracks", [])),

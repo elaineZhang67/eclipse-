@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 
 DEFAULT_PIPELINE_LLM_MODEL = "google/gemma-4-E4B-it"
-DEFAULT_CHAT_ANSWER_MODEL = "Qwen/Qwen2.5-14B-Instruct"
+DEFAULT_CHAT_ANSWER_MODEL = DEFAULT_PIPELINE_LLM_MODEL
 
 
 class PipelineOptions(BaseModel):
@@ -87,7 +87,7 @@ class AskRequest(BaseModel):
     session_id: Optional[str] = None
     top_k: int = 4
     history_turns: int = 8
-    answer_backend: str = "text"
+    answer_backend: str = "vl"
     answer_model: Optional[str] = DEFAULT_CHAT_ANSWER_MODEL
     device: str = "cuda"
 
@@ -100,6 +100,7 @@ class AskResponse(BaseModel):
     run_ids: List[str]
     video_id: Optional[str] = None
     timeframe: Optional[Dict[str, Optional[float]]] = None
+    visual_context: Optional[Dict[str, Any]] = None
 
 
 class ChatSessionResponse(BaseModel):
@@ -124,6 +125,6 @@ class ChatAskRequest(BaseModel):
     end_sec: Optional[float] = None
     top_k: int = 4
     history_turns: int = 8
-    answer_backend: str = "text"
+    answer_backend: str = "vl"
     answer_model: Optional[str] = DEFAULT_CHAT_ANSWER_MODEL
     device: str = "cuda"

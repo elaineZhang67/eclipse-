@@ -764,7 +764,17 @@ def run_pipeline(args):
         )
 
     if getattr(args, "question", None):
-        documents = rag_builder.build_documents(event_log, all_track_payload, interval_outputs, window_outputs)
+        documents = rag_builder.build_documents(
+            event_log,
+            all_track_payload,
+            interval_outputs,
+            window_outputs,
+            source_meta={
+                "camera_id": getattr(args, "camera_id", None),
+                "run_id": getattr(args, "run_id", None),
+                "video_path": getattr(args, "video", None),
+            },
+        )
         retrieved = rag_builder.retrieve_with_stitching(
             getattr(args, "question", ""),
             documents,

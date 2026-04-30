@@ -246,7 +246,14 @@ class QwenSummarizer:
             "Window summary:"
         )
 
-    def build_qa_prompt(self, question, context_docs, conversation_history=None):
+    def build_qa_prompt(self, question, context_docs, conversation_history=None, has_visual_evidence=False):
+        visual_instruction = ""
+        if has_visual_evidence:
+            visual_instruction = (
+                "The answer also has visual keyframes sampled from the retrieved windows. "
+                "Use those images for visible appearance, spatial layout, and fine-grained visual details; "
+                "use retrieved context for track IDs, timestamps, and structured events.\n"
+            )
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
             "Each track corresponds to one human subject. Prefer labels like 'Person 1 (track 7)' when available.\n"
@@ -254,6 +261,7 @@ class QwenSummarizer:
             "multiple tracker ids may refer to the same person.\n"
             "If the retrieved context includes stitched_track_timeline, use it to connect the same person across "
             "adjacent 5-second windows before answering specific-time questions.\n"
+            f"{visual_instruction}"
             "If the context is insufficient, say so explicitly.\n"
             "Answer in 3-6 sentences and cite track IDs and time ranges when available.\n\n"
             f"Conversation history:\n{_format_chat_history(conversation_history)}\n\n"
@@ -296,8 +304,13 @@ class QwenSummarizer:
         prompt = self.build_window_prompt(window_packet)
         return self._generate(prompt, max_new_tokens=140)
 
-    def answer_question(self, question, context_docs, conversation_history=None):
-        prompt = self.build_qa_prompt(question, context_docs, conversation_history=conversation_history)
+    def answer_question(self, question, context_docs, conversation_history=None, visual_evidence=None):
+        prompt = self.build_qa_prompt(
+            question,
+            context_docs,
+            conversation_history=conversation_history,
+            has_visual_evidence=bool(visual_evidence),
+        )
         return self._generate(prompt, max_new_tokens=220)
 
 
@@ -462,7 +475,14 @@ class QwenVLSummarizer:
             "Window summary:"
         )
 
-    def build_qa_prompt(self, question, context_docs, conversation_history=None):
+    def build_qa_prompt(self, question, context_docs, conversation_history=None, has_visual_evidence=False):
+        visual_instruction = ""
+        if has_visual_evidence:
+            visual_instruction = (
+                "The images are keyframes sampled from the retrieved windows after RAG. "
+                "Use images for visible appearance, spatial layout, and fine-grained visual details; "
+                "use retrieved context for track IDs, timestamps, and structured events.\n"
+            )
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
             "Each track corresponds to one human subject. Prefer labels like 'Person 1 (track 7)' when available.\n"
@@ -470,6 +490,7 @@ class QwenVLSummarizer:
             "multiple tracker ids may refer to the same person.\n"
             "If the retrieved context includes stitched_track_timeline, use it to connect the same person across "
             "adjacent 5-second windows before answering specific-time questions.\n"
+            f"{visual_instruction}"
             "If the context is insufficient, say so explicitly.\n"
             "Answer in 3-6 sentences and cite track IDs and time ranges when available.\n\n"
             f"Conversation history:\n{_format_chat_history(conversation_history)}\n\n"
@@ -517,9 +538,15 @@ class QwenVLSummarizer:
         images = list(scene_images or [])[: min(1, self.max_scene_images)]
         return self._generate(prompt, image_arrays=images, max_new_tokens=140)
 
-    def answer_question(self, question, context_docs, conversation_history=None):
-        prompt = self.build_qa_prompt(question, context_docs, conversation_history=conversation_history)
-        return self._generate(prompt, image_arrays=None, max_new_tokens=220)
+    def answer_question(self, question, context_docs, conversation_history=None, visual_evidence=None):
+        images = list(visual_evidence or [])[: self.max_scene_images]
+        prompt = self.build_qa_prompt(
+            question,
+            context_docs,
+            conversation_history=conversation_history,
+            has_visual_evidence=bool(images),
+        )
+        return self._generate(prompt, image_arrays=images, max_new_tokens=240)
 
 
 def build_summarizer(
