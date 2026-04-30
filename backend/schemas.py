@@ -26,7 +26,6 @@ class PipelineOptions(BaseModel):
     stride: int = 8
     clip_sec: float = 2.0
     stride_sec: float = 1.0
-    action_min_conf: float = 0.5
     min_conf: float = 0.25
     max_people: int = 20
     track_labels: str = "person"
@@ -43,6 +42,7 @@ class PipelineOptions(BaseModel):
     scene_summary_video_long_edge: int = 768
     summarize_event_windows: bool = True
     llm_window_summaries: bool = False
+    vl_window_captions: bool = True
     interaction_combine_iou: float = 0.05
     interaction_combine_dist: float = 1.2
     interaction_nearby_dist: float = 2.5
@@ -55,8 +55,10 @@ class PipelineOptions(BaseModel):
     llm_model: Optional[str] = DEFAULT_PIPELINE_LLM_MODEL
     vl_max_track_images: int = 4
     vl_max_scene_images: int = 4
+    vl_max_window_images: int = 3
     vl_track_gap_sec: float = 1.5
     vl_scene_gap_sec: float = 3.0
+    vl_window_gap_sec: float = 1.5
     disable_progress: bool = True
     debug_evidence: bool = True
     debug_evidence_dir: Optional[str] = None

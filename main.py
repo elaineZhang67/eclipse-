@@ -109,16 +109,10 @@ def parse_args():
         help="execution device for torch models",
     )
     p.add_argument("--fps", type=float, default=4.0, help="sampling FPS (approx)")
-    p.add_argument("--clip_len", type=int, default=16, help="frames per clip")
-    p.add_argument("--stride", type=int, default=8, help="slide stride in frames")
-    p.add_argument("--clip_sec", type=float, default=2.0, help="seconds per action clip; overrides clip_len")
-    p.add_argument("--stride_sec", type=float, default=1.0, help="seconds between clips; overrides stride")
-    p.add_argument(
-        "--action_min_conf",
-        type=float,
-        default=0.5,
-        help="minimum VideoMAE action confidence required before an action label is used in summaries/RAG",
-    )
+    p.add_argument("--clip_len", type=int, default=16, help="deprecated no-op; VideoMAE action clips are disabled")
+    p.add_argument("--stride", type=int, default=8, help="deprecated no-op; VideoMAE action clips are disabled")
+    p.add_argument("--clip_sec", type=float, default=2.0, help="deprecated no-op; VideoMAE action clips are disabled")
+    p.add_argument("--stride_sec", type=float, default=1.0, help="deprecated no-op; VideoMAE action clips are disabled")
     p.add_argument("--min_conf", type=float, default=0.25, help="YOLO conf threshold")
     p.add_argument("--max_people", type=int, default=20, help="max tracked people to keep state for")
     p.add_argument("--track_labels", type=str, default="person", help="comma-separated classes to track")
@@ -167,6 +161,13 @@ def parse_args():
         action="store_true",
         help="also run the selected summarizer on every 5-second window; this is slower and uses more GPU memory",
     )
+    p.add_argument(
+        "--no_vl_window_captions",
+        action="store_false",
+        dest="vl_window_captions",
+        help="disable Gemma/VL captions for each 5-second window",
+    )
+    p.set_defaults(vl_window_captions=True)
     p.add_argument("--interaction_combine_iou", type=float, default=0.05, help="IOU threshold to merge two boxes into one interaction region")
     p.add_argument("--interaction_combine_dist", type=float, default=1.2, help="normalized center-distance threshold for a merged interaction region")
     p.add_argument("--interaction_nearby_dist", type=float, default=2.5, help="normalized center-distance threshold for nearby but separate interactions")
@@ -186,8 +187,10 @@ def parse_args():
     )
     p.add_argument("--vl_max_track_images", type=int, default=4, help="max sampled person crops to pass to the VL summarizer per track")
     p.add_argument("--vl_max_scene_images", type=int, default=4, help="max sampled scene frames to pass to the VL summarizer")
+    p.add_argument("--vl_max_window_images", type=int, default=3, help="max sampled scene frames per 5-second window for VL captions")
     p.add_argument("--vl_track_gap_sec", type=float, default=1.5, help="minimum time gap between stored track crops for VL summarization")
     p.add_argument("--vl_scene_gap_sec", type=float, default=3.0, help="minimum time gap between stored scene frames for VL summarization")
+    p.add_argument("--vl_window_gap_sec", type=float, default=1.5, help="minimum time gap between stored window frames for VL captions")
     p.add_argument("--question", type=str, default=None, help="optional question to answer from the event log and long summaries")
     p.add_argument("--question_top_k", type=int, default=4, help="number of retrieved context chunks for QA")
     p.add_argument("--camera_id", type=str, default="camera_1", help="camera identifier for persistence and chat")

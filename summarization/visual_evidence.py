@@ -46,23 +46,31 @@ class VisualEvidenceCollector:
         self,
         max_track_images=4,
         max_scene_images=4,
+        max_window_images=3,
         track_gap_sec=1.5,
         scene_gap_sec=3.0,
+        window_gap_sec=1.5,
+        window_sec=5.0,
         track_long_edge=256,
         scene_long_edge=768,
     ):
         self.max_track_images = max(0, int(max_track_images))
         self.max_scene_images = max(0, int(max_scene_images))
+        self.max_window_images = max(0, int(max_window_images))
         self.track_gap_sec = max(0.0, float(track_gap_sec))
         self.scene_gap_sec = max(0.0, float(scene_gap_sec))
+        self.window_gap_sec = max(0.0, float(window_gap_sec))
+        self.window_sec = max(0.001, float(window_sec))
         self.track_long_edge = max(0, int(track_long_edge))
         self.scene_long_edge = max(0, int(scene_long_edge))
 
         self._rng = random.Random(0)
         self._scene_bank = _ReservoirImageBank(self.max_scene_images, self._rng)
         self._track_banks = {}
+        self._window_scene_banks = {}
         self._last_scene_t = None
         self._last_track_t = {}
+        self._last_window_scene_t = {}
 
     def _track_bank(self, track_id):
         bank = self._track_banks.get(track_id)
@@ -71,16 +79,35 @@ class VisualEvidenceCollector:
             self._track_banks[track_id] = bank
         return bank
 
+    def _window_index(self, t_sec):
+        return int(float(t_sec) // self.window_sec)
+
+    def _window_bank(self, window_idx):
+        bank = self._window_scene_banks.get(window_idx)
+        if bank is None:
+            bank = _ReservoirImageBank(self.max_window_images, self._rng)
+            self._window_scene_banks[window_idx] = bank
+        return bank
+
     def update_scene(self, frame_bgr, t_sec):
-        if self.max_scene_images <= 0:
-            return
-        if self._last_scene_t is not None and (t_sec - self._last_scene_t) < self.scene_gap_sec:
+        if self.max_scene_images <= 0 and self.max_window_images <= 0:
             return
 
         resized = _resize_long_edge(frame_bgr, self.scene_long_edge)
         frame_rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
-        self._scene_bank.add({"t_sec": float(t_sec), "image_rgb": frame_rgb})
-        self._last_scene_t = float(t_sec)
+
+        if self.max_scene_images > 0 and (
+            self._last_scene_t is None or (t_sec - self._last_scene_t) >= self.scene_gap_sec
+        ):
+            self._scene_bank.add({"t_sec": float(t_sec), "image_rgb": frame_rgb})
+            self._last_scene_t = float(t_sec)
+
+        if self.max_window_images > 0:
+            window_idx = self._window_index(t_sec)
+            last_t = self._last_window_scene_t.get(window_idx)
+            if last_t is None or (t_sec - last_t) >= self.window_gap_sec:
+                self._window_bank(window_idx).add({"t_sec": float(t_sec), "image_rgb": frame_rgb})
+                self._last_window_scene_t[window_idx] = float(t_sec)
 
     def update_tracks(self, frame_bgr, person_tracks, t_sec):
         if self.max_track_images <= 0:
@@ -118,4 +145,24 @@ class VisualEvidenceCollector:
             samples = [item for item in samples if item["t_sec"] >= float(start_sec)]
         if end_sec is not None:
             samples = [item for item in samples if item["t_sec"] <= float(end_sec)]
+        return [item["image_rgb"] for item in samples]
+
+    def get_window_scene_images(self, start_sec=None, end_sec=None):
+        if start_sec is None and end_sec is None:
+            return self.get_scene_images()
+
+        start = 0.0 if start_sec is None else float(start_sec)
+        end = start if end_sec is None else float(end_sec)
+        first_idx = self._window_index(start)
+        last_idx = self._window_index(max(start, end - 1e-6))
+        samples = []
+        for window_idx in range(first_idx, last_idx + 1):
+            bank = self._window_scene_banks.get(window_idx)
+            if bank is not None:
+                samples.extend(bank.items)
+        samples = sorted(samples, key=lambda item: item["t_sec"])
+        if start_sec is not None:
+            samples = [item for item in samples if item["t_sec"] >= start]
+        if end_sec is not None:
+            samples = [item for item in samples if item["t_sec"] <= end]
         return [item["image_rgb"] for item in samples]

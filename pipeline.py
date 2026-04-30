@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 import cv2
 from tqdm.auto import tqdm
 
@@ -8,10 +6,6 @@ from detection.sam3_detector import Sam3Detector
 from tracking.tracker import MultiObjectTracker
 from tracking.appearance_memory import TrackMemoryBank
 from preprocessing.frame_sampler import FrameSampler
-from preprocessing.clip_builder import ClipBuilder
-from video_encoder.videomae_encoder import VideoMAEActionModel
-from temporal.aggregator import TemporalAggregator
-from temporal.segmenter import EventSegmenter
 from temporal.event_log import SceneEventBuilder
 from temporal.interval_summary import SceneIntervalBuilder
 from retrieval.event_rag import EventRAG
@@ -140,19 +134,6 @@ def _safe_float(value, default=0.0):
         return float(value)
     except (TypeError, ValueError):
         return float(default)
-
-
-def _filter_action_segments(segments, min_conf=0.5):
-    min_conf = max(0.0, float(min_conf or 0.0))
-    reliable = []
-    unreliable = []
-    for segment in segments or []:
-        avg_conf = _safe_float(segment.get("avg_conf"), 0.0)
-        if avg_conf >= min_conf:
-            reliable.append(segment)
-        else:
-            unreliable.append(segment)
-    return reliable, unreliable
 
 
 def _overlaps(start_a, end_a, start_b, end_b):
@@ -296,7 +277,7 @@ def _format_window_track(track):
             )
         )
     pieces.append(
-        "actions " + (", ".join(segments) if segments else "no reliable classified action in this window")
+        "actions " + (", ".join(segments) if segments else "no action-classifier labels; use VLM caption when available")
     )
 
     if track.get("objects"):
@@ -425,13 +406,6 @@ def run_pipeline(args):
         environment=getattr(args, "environment", "generic"),
         max_object_types=getattr(args, "max_object_types", 5),
     )
-    clip_len = args.clip_len
-    stride = args.stride
-    if getattr(args, "clip_sec", None):
-        clip_len = max(4, int(round(args.fps * args.clip_sec)))
-    if getattr(args, "stride_sec", None):
-        stride = max(1, int(round(args.fps * args.stride_sec)))
-
     # 1) modules
     sampler = FrameSampler(target_fps=args.fps)
     object_backend = str(getattr(args, "object_backend", "sam3")).strip().lower()
@@ -508,13 +482,6 @@ def run_pipeline(args):
             mapping_ttl_sec=getattr(args, "appearance_memory_ttl_sec", 8.0),
             reassoc_gap_sec=getattr(args, "appearance_reassoc_gap_sec", 20.0),
         )
-    clip_builder = ClipBuilder(clip_len=clip_len, stride=stride)
-    action_model = VideoMAEActionModel(
-        model_id="MCG-NJU/videomae-base-finetuned-kinetics",
-        device=getattr(args, "device", "auto"),
-    )
-    aggregator = TemporalAggregator()
-    segmenter = EventSegmenter(min_seg_len_sec=1.0)
     event_builder = SceneEventBuilder(
         window_sec=args.event_window_sec,
         combine_iou=args.interaction_combine_iou,
@@ -554,14 +521,14 @@ def run_pipeline(args):
             visual_evidence = VisualEvidenceCollector(
                 max_track_images=getattr(args, "vl_max_track_images", 4),
                 max_scene_images=getattr(args, "vl_max_scene_images", 4),
+                max_window_images=getattr(args, "vl_max_window_images", 3),
                 track_gap_sec=getattr(args, "vl_track_gap_sec", 1.5),
                 scene_gap_sec=getattr(args, "vl_scene_gap_sec", 3.0),
+                window_gap_sec=getattr(args, "vl_window_gap_sec", 1.5),
+                window_sec=getattr(args, "event_window_sec", 5.0),
             )
 
-    # state per track_id
-    per_track_probs = defaultdict(list)   # tid -> list of (t_start, t_end, label, conf)
     sampler.open(args.video)
-    clip_count = 0
     frame_progress = _build_tqdm(
         total=sampler.estimated_sampled_frames or None,
         desc="Video",
@@ -603,24 +570,6 @@ def run_pipeline(args):
                 visual_evidence.update_scene(frame_bgr, t_sec)
                 visual_evidence.update_tracks(frame_bgr, person_tracks, t_sec)
 
-            # limit state size (optional)
-            if len(per_track_probs) > args.max_people:
-                # you can implement eviction policy; simplest: do nothing for now
-                pass
-
-            clip_ready = clip_builder.push(frame_bgr, person_tracks, t_sec)
-
-            # clip_ready: list of dicts:
-            # {track_id, clip_rgb_frames(list), t_start, t_end}
-            for item in clip_ready:
-                tid = item["track_id"]
-                clip_rgb = item["clip_rgb"]
-                t_start, t_end = item["t_start"], item["t_end"]
-
-                label, conf = action_model.predict_label(clip_rgb)
-                per_track_probs[tid].append((t_start, t_end, label, float(conf)))
-                clip_count += 1
-
             assignments = event_builder.update(t_sec, person_tracks, object_tracks)
             if debug_evidence is not None:
                 debug_evidence.update(
@@ -636,7 +585,6 @@ def run_pipeline(args):
                 time_s=round(float(t_sec), 1),
                 people=len(person_tracks),
                 objs=len(object_tracks),
-                clips=clip_count,
             )
     finally:
         frame_progress.close()
@@ -651,7 +599,7 @@ def run_pipeline(args):
     _annotate_person_aliases(event_log, per_track_metadata)
     track_outputs = {}
     all_track_payload = {}
-    tracked_ids = sorted(set(per_track_metadata) | set(per_track_probs))
+    tracked_ids = sorted(set(per_track_metadata))
 
     track_progress = _build_tqdm(
         tracked_ids,
@@ -660,14 +608,7 @@ def run_pipeline(args):
         disable=disable_progress,
     )
     for tid in track_progress:
-        preds = per_track_probs.get(tid, [])
-        # preds: list of windows
-        agg = aggregator.smooth(preds)  # list of (t_start, t_end, label, score)
-        raw_segments = segmenter.segment(agg)  # list of dict segments
-        segments, unreliable_segments = _filter_action_segments(
-            raw_segments,
-            min_conf=getattr(args, "action_min_conf", 0.5),
-        )
+        segments = []
         metadata = per_track_metadata.get(
             tid,
             {
@@ -683,8 +624,6 @@ def run_pipeline(args):
 
         out = {
             "segments": segments,
-            "raw_action_segments": raw_segments,
-            "unreliable_action_segments": unreliable_segments,
             "metadata": metadata,
         }
         if summarizer is not None:
@@ -706,7 +645,6 @@ def run_pipeline(args):
         all_track_payload[tid] = {
             "metadata": metadata,
             "segments": segments,
-            "raw_action_segments": raw_segments,
         }
         if "profile" in out:
             all_track_payload[tid]["profile"] = out["profile"]
@@ -718,6 +656,11 @@ def run_pipeline(args):
     window_packets = _build_window_packets(event_log, all_track_payload)
     window_outputs = []
     if bool(getattr(args, "summarize_event_windows", True)):
+        use_vl_window_captions = (
+            bool(getattr(args, "vl_window_captions", True))
+            and summarizer is not None
+            and getattr(summarizer, "uses_visual_inputs", False)
+        )
         window_progress = _build_tqdm(
             window_packets,
             desc="Windows",
@@ -734,7 +677,23 @@ def run_pipeline(args):
                 "structured_summary": _structured_window_summary(window_packet),
             }
             out["summary"] = out["structured_summary"]
-            if bool(getattr(args, "llm_window_summaries", False)) and summarizer is not None:
+            if use_vl_window_captions:
+                scene_images = (
+                    visual_evidence.get_window_scene_images(
+                        start_sec=window_packet["start"],
+                        end_sec=window_packet["end"],
+                    )
+                    if visual_evidence is not None
+                    else None
+                )
+                out["vl_action_caption"] = summarizer.summarize_window(
+                    window_packet,
+                    scene_images=scene_images,
+                )
+                out["summary"] = out["vl_action_caption"]
+                out["summary_source"] = "vl_action_caption"
+                out["caption_frame_count"] = len(scene_images or [])
+            elif bool(getattr(args, "llm_window_summaries", False)) and summarizer is not None:
                 scene_images = (
                     visual_evidence.get_scene_images(
                         start_sec=window_packet["start"],
@@ -748,6 +707,11 @@ def run_pipeline(args):
                     scene_images=scene_images,
                 )
                 out["summary"] = out["llm_summary"]
+                out["summary_source"] = "llm_window_summary"
+                out["caption_frame_count"] = len(scene_images or [])
+            else:
+                out["summary_source"] = "structured_summary"
+                out["caption_frame_count"] = 0
             window_outputs.append(out)
             window_progress.set_postfix(
                 tracks=len(window_packet["active_tracks"]),
@@ -796,16 +760,18 @@ def run_pipeline(args):
             "object_labels": object_labels,
             "unsupported_track_labels": tracker_missing_classes,
             "unsupported_object_labels": object_source_missing,
-            "clip_len": clip_len,
-            "stride": stride,
             "event_window_sec": args.event_window_sec,
             "long_summary_sec": getattr(args, "long_summary_sec", 60.0),
             "summarize_event_windows": bool(getattr(args, "summarize_event_windows", True)),
             "llm_window_summaries": bool(getattr(args, "llm_window_summaries", False)),
+            "vl_window_captions": bool(getattr(args, "vl_window_captions", True)),
+            "vl_max_window_images": getattr(args, "vl_max_window_images", 3),
+            "vl_window_gap_sec": getattr(args, "vl_window_gap_sec", 1.5),
             "enable_interval_summaries": bool(getattr(args, "enable_interval_summaries", False)),
             "scene_summary_video_frames": getattr(args, "scene_summary_video_frames", 32),
             "scene_summary_video_long_edge": getattr(args, "scene_summary_video_long_edge", 768),
-            "action_min_conf": getattr(args, "action_min_conf", 0.5),
+            "action_backend": "vl_window_caption" if bool(getattr(args, "vl_window_captions", True)) else "none",
+            "videomae_enabled": False,
             "tracker": args.tracker,
             "track_backend": track_backend,
             "person_tracker_model": getattr(args, "sam3_model", None) if track_backend == "sam3" else args.yolo,
@@ -840,10 +806,9 @@ def run_pipeline(args):
             "event_windows": len(event_log),
             "window_summaries": len(window_outputs),
             "intervals": len(interval_outputs),
-            "action_clips": int(clip_count),
-            "reliable_action_segments": sum(len(payload.get("segments", [])) for payload in track_outputs.values()),
-            "raw_action_segments": sum(
-                len(payload.get("raw_action_segments", [])) for payload in track_outputs.values()
+            "vl_window_captions": sum(1 for item in window_outputs if item.get("vl_action_caption")),
+            "vl_window_caption_frames": sum(
+                int(item.get("caption_frame_count") or 0) for item in window_outputs
             ),
         },
         "tracks": track_outputs,
