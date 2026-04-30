@@ -113,6 +113,12 @@ def parse_args():
     p.add_argument("--stride", type=int, default=8, help="slide stride in frames")
     p.add_argument("--clip_sec", type=float, default=2.0, help="seconds per action clip; overrides clip_len")
     p.add_argument("--stride_sec", type=float, default=1.0, help="seconds between clips; overrides stride")
+    p.add_argument(
+        "--action_min_conf",
+        type=float,
+        default=0.5,
+        help="minimum VideoMAE action confidence required before an action label is used in summaries/RAG",
+    )
     p.add_argument("--min_conf", type=float, default=0.25, help="YOLO conf threshold")
     p.add_argument("--max_people", type=int, default=20, help="max tracked people to keep state for")
     p.add_argument("--track_labels", type=str, default="person", help="comma-separated classes to track")

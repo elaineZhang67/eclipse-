@@ -142,6 +142,19 @@ def _safe_float(value, default=0.0):
         return float(default)
 
 
+def _filter_action_segments(segments, min_conf=0.5):
+    min_conf = max(0.0, float(min_conf or 0.0))
+    reliable = []
+    unreliable = []
+    for segment in segments or []:
+        avg_conf = _safe_float(segment.get("avg_conf"), 0.0)
+        if avg_conf >= min_conf:
+            reliable.append(segment)
+        else:
+            unreliable.append(segment)
+    return reliable, unreliable
+
+
 def _overlaps(start_a, end_a, start_b, end_b):
     return max(_safe_float(start_a), _safe_float(start_b)) < min(
         _safe_float(end_a),
@@ -275,13 +288,16 @@ def _format_window_track(track):
     segments = []
     for segment in track.get("segments", []):
         segments.append(
-            "{action} {start}-{end}s".format(
+            "{action} {start}-{end}s avg_conf {avg_conf}".format(
                 action=segment.get("action", "unknown action"),
                 start=segment.get("start"),
                 end=segment.get("end"),
+                avg_conf=segment.get("avg_conf"),
             )
         )
-    pieces.append("actions " + (", ".join(segments) if segments else "no classified action in this window"))
+    pieces.append(
+        "actions " + (", ".join(segments) if segments else "no reliable classified action in this window")
+    )
 
     if track.get("objects"):
         pieces.append("objects " + ", ".join(track.get("objects", [])))
@@ -647,7 +663,11 @@ def run_pipeline(args):
         preds = per_track_probs.get(tid, [])
         # preds: list of windows
         agg = aggregator.smooth(preds)  # list of (t_start, t_end, label, score)
-        segments = segmenter.segment(agg)  # list of dict segments
+        raw_segments = segmenter.segment(agg)  # list of dict segments
+        segments, unreliable_segments = _filter_action_segments(
+            raw_segments,
+            min_conf=getattr(args, "action_min_conf", 0.5),
+        )
         metadata = per_track_metadata.get(
             tid,
             {
@@ -663,6 +683,8 @@ def run_pipeline(args):
 
         out = {
             "segments": segments,
+            "raw_action_segments": raw_segments,
+            "unreliable_action_segments": unreliable_segments,
             "metadata": metadata,
         }
         if summarizer is not None:
@@ -684,6 +706,7 @@ def run_pipeline(args):
         all_track_payload[tid] = {
             "metadata": metadata,
             "segments": segments,
+            "raw_action_segments": raw_segments,
         }
         if "profile" in out:
             all_track_payload[tid]["profile"] = out["profile"]
@@ -782,6 +805,7 @@ def run_pipeline(args):
             "enable_interval_summaries": bool(getattr(args, "enable_interval_summaries", False)),
             "scene_summary_video_frames": getattr(args, "scene_summary_video_frames", 32),
             "scene_summary_video_long_edge": getattr(args, "scene_summary_video_long_edge", 768),
+            "action_min_conf": getattr(args, "action_min_conf", 0.5),
             "tracker": args.tracker,
             "track_backend": track_backend,
             "person_tracker_model": getattr(args, "sam3_model", None) if track_backend == "sam3" else args.yolo,
@@ -817,6 +841,10 @@ def run_pipeline(args):
             "window_summaries": len(window_outputs),
             "intervals": len(interval_outputs),
             "action_clips": int(clip_count),
+            "reliable_action_segments": sum(len(payload.get("segments", [])) for payload in track_outputs.values()),
+            "raw_action_segments": sum(
+                len(payload.get("raw_action_segments", [])) for payload in track_outputs.values()
+            ),
         },
         "tracks": track_outputs,
         "event_log": event_log,

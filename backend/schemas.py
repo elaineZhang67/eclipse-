@@ -26,6 +26,7 @@ class PipelineOptions(BaseModel):
     stride: int = 8
     clip_sec: float = 2.0
     stride_sec: float = 1.0
+    action_min_conf: float = 0.5
     min_conf: float = 0.25
     max_people: int = 20
     track_labels: str = "person"

@@ -587,10 +587,11 @@ def _format_track_payload(track_id, payload, alias_map):
         )
     for segment in segments:
         parts.append(
-            "action {action} from {start} to {end}".format(
+            "reliable classified action {action} from {start} to {end} avg_conf {avg_conf}".format(
                 action=segment.get("action"),
                 start=segment.get("start"),
                 end=segment.get("end"),
+                avg_conf=segment.get("avg_conf"),
             )
         )
     for interaction in metadata.get("interactions", []):
