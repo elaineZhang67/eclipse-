@@ -83,6 +83,44 @@ def _format_chat_history(conversation_history):
     return "\n".join(lines) if lines else "No prior conversation."
 
 
+def _compact_scene_packet(event_log, track_payload, max_events=40):
+    events = []
+    for window in event_log or []:
+        for event in window.get("events", []):
+            events.append(
+                {
+                    "window_start": window.get("start"),
+                    "window_end": window.get("end"),
+                    "event": event,
+                }
+            )
+
+    tracks = []
+    for track_id, payload in sorted(track_payload.items(), key=lambda item: int(item[0])):
+        metadata = payload.get("metadata", {})
+        tracks.append(
+            {
+                "track_id": int(track_id),
+                "display_name": metadata.get("display_name"),
+                "track_ref": metadata.get("track_ref"),
+                "first_seen": metadata.get("first_seen"),
+                "last_seen": metadata.get("last_seen"),
+                "objects": list(metadata.get("objects", [])),
+                "profile": payload.get("profile"),
+                "summary": payload.get("summary"),
+                "segments": list(payload.get("segments", []))[:20],
+            }
+        )
+
+    return {
+        "video_start": None if not event_log else min(window.get("start", 0.0) for window in event_log),
+        "video_end": None if not event_log else max(window.get("end", 0.0) for window in event_log),
+        "event_window_count": len(event_log or []),
+        "notable_events": events[:max_events],
+        "tracks": tracks,
+    }
+
+
 def _load_vl_model(model_id, device):
     try:
         from transformers import Qwen3VLForConditionalGeneration
@@ -220,6 +258,19 @@ class QwenSummarizer:
             "Scene summary:"
         )
 
+    def build_video_scene_prompt(self, event_log, track_payload):
+        packet = _compact_scene_packet(event_log, track_payload)
+        packet_txt = json.dumps(packet, indent=2)
+        return (
+            "You are preparing a full-video scene summary for one surveillance camera.\n"
+            "Use the compact structured packet as grounding for track IDs, timestamps, actions, objects, and identity continuity.\n"
+            "If sampled full-video frames are available, use them for visual layout and visible scene details.\n"
+            "Write 2 short paragraphs that summarize the overall scene, main people, object interactions, and notable changes.\n"
+            "Do not invent clothing, objects, or interactions that are absent from the evidence.\n\n"
+            f"Compact full-video packet:\n{packet_txt}\n\n"
+            "Full-video scene summary:"
+        )
+
     def build_interval_prompt(self, interval_packet):
         packet_txt = json.dumps(interval_packet, indent=2)
         return (
@@ -295,6 +346,10 @@ class QwenSummarizer:
 
     def summarize_scene(self, event_log, track_payload, scene_images=None):
         prompt = self.build_scene_prompt(event_log, track_payload)
+        return self._generate(prompt, max_new_tokens=280)
+
+    def summarize_scene_video(self, event_log, track_payload, video_frames=None):
+        prompt = self.build_video_scene_prompt(event_log, track_payload)
         return self._generate(prompt, max_new_tokens=280)
 
     def summarize_interval(self, interval_packet, scene_images=None):
@@ -449,6 +504,20 @@ class QwenVLSummarizer:
             "Scene summary:"
         )
 
+    def build_video_scene_prompt(self, event_log, track_payload):
+        packet = _compact_scene_packet(event_log, track_payload)
+        packet_txt = json.dumps(packet, indent=2)
+        return (
+            "You are preparing a full-video scene summary for one surveillance camera.\n"
+            "The visual input contains frames sampled uniformly across the full video.\n"
+            "Use the sampled frames for visual layout and visible scene details, and use the compact structured packet "
+            "for track IDs, timestamps, actions, objects, and identity continuity.\n"
+            "Write 2 short paragraphs that summarize the overall scene, main people, object interactions, and notable changes.\n"
+            "Do not invent clothing, objects, or interactions that are absent from both the sampled frames and the structured evidence.\n\n"
+            f"Compact full-video packet:\n{packet_txt}\n\n"
+            "Full-video scene summary:"
+        )
+
     def build_interval_prompt(self, interval_packet):
         packet_txt = json.dumps(interval_packet, indent=2)
         return (
@@ -528,6 +597,11 @@ class QwenVLSummarizer:
     def summarize_scene(self, event_log, track_payload, scene_images=None):
         prompt = self.build_scene_prompt(event_log, track_payload)
         images = list(scene_images or [])[: self.max_scene_images]
+        return self._generate(prompt, image_arrays=images, max_new_tokens=320)
+
+    def summarize_scene_video(self, event_log, track_payload, video_frames=None):
+        prompt = self.build_video_scene_prompt(event_log, track_payload)
+        images = list(video_frames or [])[: self.max_scene_images]
         return self._generate(prompt, image_arrays=images, max_new_tokens=320)
 
     def summarize_interval(self, interval_packet, scene_images=None):

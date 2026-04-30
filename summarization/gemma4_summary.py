@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 
 import cv2
+import numpy as np
 import torch
 from transformers import AutoProcessor
 
@@ -106,6 +107,56 @@ class Gemma4VLSummarizer(QwenVLSummarizer):
             clean_up_tokenization_spaces=False,
         )
         return decoded[0].strip()
+
+    def _generate_video(self, prompt, video_frames=None, max_new_tokens=320):
+        video_frames = list(video_frames or [])
+        if not video_frames:
+            return self._generate(prompt, image_arrays=None, max_new_tokens=max_new_tokens)
+
+        try:
+            video_array = np.stack(video_frames, axis=0)
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video", "video": video_array},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ]
+            inputs = self.processor.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_dict=True,
+                return_tensors="pt",
+            )
+        except Exception:
+            return self._generate(prompt, image_arrays=video_frames, max_new_tokens=max_new_tokens)
+
+        inputs.pop("token_type_ids", None)
+        inputs = _move_to_device(inputs, self.input_device, float_dtype=self.model_dtype)
+
+        with torch.inference_mode():
+            generated = self.model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+            )
+
+        prompt_len = inputs["input_ids"].shape[-1]
+        generated_ids = generated[:, prompt_len:]
+        decoded = self.processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )
+        return decoded[0].strip()
+
+    def summarize_scene_video(self, event_log, track_payload, video_frames=None):
+        prompt = self.build_video_scene_prompt(event_log, track_payload)
+        frames = list(video_frames or [])[: self.max_scene_images]
+        return self._generate_video(prompt, video_frames=frames, max_new_tokens=320)
 
 
 def build_gemma4_summarizer(

@@ -133,6 +133,23 @@ def parse_args():
     p.add_argument("--event_window_sec", type=float, default=5.0, help="event-log window size in seconds")
     p.add_argument("--long_summary_sec", type=float, default=60.0, help="longer summary chunk size in seconds")
     p.add_argument(
+        "--enable_interval_summaries",
+        action="store_true",
+        help="enable Gemma/text summaries for long intervals; disabled by default because 5s windows + stitched timelines serve QA",
+    )
+    p.add_argument(
+        "--scene_summary_video_frames",
+        type=int,
+        default=16,
+        help="number of uniformly sampled full-video frames to pass to the scene summarizer",
+    )
+    p.add_argument(
+        "--scene_summary_video_long_edge",
+        type=int,
+        default=768,
+        help="max long edge for frames sampled for full-video scene summary",
+    )
+    p.add_argument(
         "--no_window_summaries",
         action="store_false",
         dest="summarize_event_windows",

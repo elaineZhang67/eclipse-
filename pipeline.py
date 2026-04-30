@@ -1,5 +1,6 @@
 from collections import defaultdict
 
+import cv2
 from tqdm.auto import tqdm
 
 from detection.sam2_detector import Sam2Detector
@@ -336,6 +337,67 @@ def _structured_window_summary(packet):
     return ". ".join(summary_parts)
 
 
+def _resize_long_edge(image_bgr, max_long_edge):
+    max_long_edge = int(max_long_edge or 0)
+    if max_long_edge <= 0:
+        return image_bgr
+
+    height, width = image_bgr.shape[:2]
+    current_long_edge = max(height, width)
+    if current_long_edge <= max_long_edge:
+        return image_bgr
+
+    scale = float(max_long_edge) / float(current_long_edge)
+    new_width = max(1, int(round(width * scale)))
+    new_height = max(1, int(round(height * scale)))
+    return cv2.resize(image_bgr, (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+
+def _sample_video_frames(video_path, max_frames=16, long_edge=768):
+    max_frames = max(0, int(max_frames or 0))
+    if max_frames <= 0:
+        return []
+
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return []
+
+    frames = []
+    try:
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if total_frames > 0:
+            if max_frames == 1:
+                frame_indices = [max(0, total_frames // 2)]
+            else:
+                frame_indices = [
+                    int(round(idx * float(total_frames - 1) / float(max_frames - 1)))
+                    for idx in range(max_frames)
+                ]
+            for frame_idx in frame_indices:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, int(frame_idx)))
+                ok, frame_bgr = cap.read()
+                if not ok or frame_bgr is None:
+                    continue
+                resized = _resize_long_edge(frame_bgr, long_edge)
+                frames.append(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
+            return frames
+
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+        duration = 0.0
+        if fps > 0:
+            duration = float(total_frames) / fps
+        if duration <= 0:
+            ok, frame_bgr = cap.read()
+            if ok and frame_bgr is not None:
+                resized = _resize_long_edge(frame_bgr, long_edge)
+                frames.append(cv2.cvtColor(resized, cv2.COLOR_BGR2RGB))
+            return frames
+    finally:
+        cap.release()
+
+    return frames
+
+
 def run_pipeline(args):
     track_labels = _parse_csv_arg(getattr(args, "track_labels", None), default=["person"])
     explicit_object_labels = _parse_csv_arg(
@@ -461,11 +523,15 @@ def run_pipeline(args):
     summarizer = None
     visual_evidence = None
     if args.use_llm:
+        scene_summary_frame_count = getattr(args, "scene_summary_video_frames", 16)
         summarizer = build_summarizer(
             backend=getattr(args, "summary_backend", "text"),
             model_id=getattr(args, "llm_model", None),
             max_track_images=getattr(args, "vl_max_track_images", 4),
-            max_scene_images=getattr(args, "vl_max_scene_images", 4),
+            max_scene_images=max(
+                getattr(args, "vl_max_scene_images", 4),
+                scene_summary_frame_count,
+            ),
             device=getattr(args, "device", "auto"),
         )
         if getattr(summarizer, "uses_visual_inputs", False):
@@ -666,39 +732,40 @@ def run_pipeline(args):
             )
         window_progress.close()
 
-    interval_packets = interval_builder.build(event_log, all_track_payload)
     interval_outputs = []
-    interval_progress = _build_tqdm(
-        interval_packets,
-        desc="Intervals",
-        unit="chunk",
-        disable=disable_progress,
-    )
-    for interval in interval_progress:
-        out = {
-            "start": interval["start"],
-            "end": interval["end"],
-            "active_tracks": interval["active_tracks"],
-            "objects": interval["objects"],
-            "interaction_count": interval["interaction_count"],
-            "event_count": interval["event_count"],
-        }
-        if summarizer is not None:
-            scene_images = (
-                visual_evidence.get_scene_images(
-                    start_sec=interval["start"],
-                    end_sec=interval["end"],
-                )
-                if visual_evidence is not None
-                else None
-            )
-            out["summary"] = summarizer.summarize_interval(interval, scene_images=scene_images)
-        interval_outputs.append(out)
-        interval_progress.set_postfix(
-            tracks=len(interval["active_tracks"]),
-            events=interval["event_count"],
+    if bool(getattr(args, "enable_interval_summaries", False)):
+        interval_packets = interval_builder.build(event_log, all_track_payload)
+        interval_progress = _build_tqdm(
+            interval_packets,
+            desc="Intervals",
+            unit="chunk",
+            disable=disable_progress,
         )
-    interval_progress.close()
+        for interval in interval_progress:
+            out = {
+                "start": interval["start"],
+                "end": interval["end"],
+                "active_tracks": interval["active_tracks"],
+                "objects": interval["objects"],
+                "interaction_count": interval["interaction_count"],
+                "event_count": interval["event_count"],
+            }
+            if summarizer is not None:
+                scene_images = (
+                    visual_evidence.get_scene_images(
+                        start_sec=interval["start"],
+                        end_sec=interval["end"],
+                    )
+                    if visual_evidence is not None
+                    else None
+                )
+                out["summary"] = summarizer.summarize_interval(interval, scene_images=scene_images)
+            interval_outputs.append(out)
+            interval_progress.set_postfix(
+                tracks=len(interval["active_tracks"]),
+                events=interval["event_count"],
+            )
+        interval_progress.close()
 
     outputs = {
         "config": {
@@ -712,6 +779,9 @@ def run_pipeline(args):
             "long_summary_sec": getattr(args, "long_summary_sec", 60.0),
             "summarize_event_windows": bool(getattr(args, "summarize_event_windows", True)),
             "llm_window_summaries": bool(getattr(args, "llm_window_summaries", False)),
+            "enable_interval_summaries": bool(getattr(args, "enable_interval_summaries", False)),
+            "scene_summary_video_frames": getattr(args, "scene_summary_video_frames", 16),
+            "scene_summary_video_long_edge": getattr(args, "scene_summary_video_long_edge", 768),
             "tracker": args.tracker,
             "track_backend": track_backend,
             "person_tracker_model": getattr(args, "sam3_model", None) if track_backend == "sam3" else args.yolo,
@@ -756,12 +826,28 @@ def run_pipeline(args):
         "track_memory_bank": [] if track_memory_bank is None else track_memory_bank.export_bank(),
     }
     if summarizer is not None:
-        scene_images = visual_evidence.get_scene_images() if visual_evidence is not None else None
-        outputs["scene_summary"] = summarizer.summarize_scene(
-            event_log,
-            all_track_payload,
-            scene_images=scene_images,
+        video_frames = _sample_video_frames(
+            getattr(args, "video", ""),
+            max_frames=getattr(args, "scene_summary_video_frames", 16),
+            long_edge=getattr(args, "scene_summary_video_long_edge", 768),
         )
+        if video_frames:
+            outputs["scene_summary"] = summarizer.summarize_scene_video(
+                event_log,
+                all_track_payload,
+                video_frames=video_frames,
+            )
+            outputs["scene_summary_source"] = "sampled_video"
+            outputs["scene_summary_frames"] = len(video_frames)
+        else:
+            scene_images = visual_evidence.get_scene_images() if visual_evidence is not None else None
+            outputs["scene_summary"] = summarizer.summarize_scene(
+                event_log,
+                all_track_payload,
+                scene_images=scene_images,
+            )
+            outputs["scene_summary_source"] = "sampled_scene_images"
+            outputs["scene_summary_frames"] = len(scene_images or [])
 
     if getattr(args, "question", None):
         documents = rag_builder.build_documents(
