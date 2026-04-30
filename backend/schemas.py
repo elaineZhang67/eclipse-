@@ -37,6 +37,8 @@ class PipelineOptions(BaseModel):
     object_attribution_near_confidence: float = 0.28
     event_window_sec: float = 5.0
     long_summary_sec: float = 60.0
+    summarize_event_windows: bool = True
+    llm_window_summaries: bool = False
     interaction_combine_iou: float = 0.05
     interaction_combine_dist: float = 1.2
     interaction_nearby_dist: float = 2.5

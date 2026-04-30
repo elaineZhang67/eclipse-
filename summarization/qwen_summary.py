@@ -234,6 +234,18 @@ class QwenSummarizer:
             "Interval summary:"
         )
 
+    def build_window_prompt(self, window_packet):
+        packet_txt = json.dumps(window_packet, indent=2)
+        return (
+            "You are summarizing one 5-second surveillance event window.\n"
+            "Each track corresponds to one human subject, and display_name / track_ref should be used when present.\n"
+            "Use the structured packet only. Do not infer clothing, objects, or actions that are not present.\n"
+            "Write 1-3 concise factual sentences about which people are active, what each person is doing, "
+            "nearby or carried objects, and person-person interactions.\n\n"
+            f"Window packet:\n{packet_txt}\n\n"
+            "Window summary:"
+        )
+
     def build_qa_prompt(self, question, context_docs, conversation_history=None):
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
@@ -277,6 +289,10 @@ class QwenSummarizer:
     def summarize_interval(self, interval_packet, scene_images=None):
         prompt = self.build_interval_prompt(interval_packet)
         return self._generate(prompt, max_new_tokens=220)
+
+    def summarize_window(self, window_packet, scene_images=None):
+        prompt = self.build_window_prompt(window_packet)
+        return self._generate(prompt, max_new_tokens=140)
 
     def answer_question(self, question, context_docs, conversation_history=None):
         prompt = self.build_qa_prompt(question, context_docs, conversation_history=conversation_history)
@@ -431,6 +447,19 @@ class QwenVLSummarizer:
             "Interval summary:"
         )
 
+    def build_window_prompt(self, window_packet):
+        packet_txt = json.dumps(window_packet, indent=2)
+        return (
+            "You are summarizing one 5-second surveillance event window.\n"
+            "The images are scene frames sampled from within this short window, when available.\n"
+            "Each track corresponds to one human subject, and display_name / track_ref should be used when present.\n"
+            "Use images only for visible context. Use the structured packet for chronology, actions, object attribution, "
+            "and interactions. Do not invent details absent from both sources.\n"
+            "Write 1-3 concise factual sentences about which people are active and what each person is doing.\n\n"
+            f"Window packet:\n{packet_txt}\n\n"
+            "Window summary:"
+        )
+
     def build_qa_prompt(self, question, context_docs, conversation_history=None):
         return (
             "You answer surveillance-video questions using only the provided retrieved context.\n"
@@ -478,6 +507,11 @@ class QwenVLSummarizer:
         prompt = self.build_interval_prompt(interval_packet)
         images = list(scene_images or [])[: self.max_scene_images]
         return self._generate(prompt, image_arrays=images, max_new_tokens=220)
+
+    def summarize_window(self, window_packet, scene_images=None):
+        prompt = self.build_window_prompt(window_packet)
+        images = list(scene_images or [])[: min(1, self.max_scene_images)]
+        return self._generate(prompt, image_arrays=images, max_new_tokens=140)
 
     def answer_question(self, question, context_docs, conversation_history=None):
         prompt = self.build_qa_prompt(question, context_docs, conversation_history=conversation_history)

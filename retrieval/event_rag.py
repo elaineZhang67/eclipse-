@@ -82,8 +82,12 @@ def _document_structural_boost(question, document):
 
     if document.get("type") == "track" and any(token in question_tokens for token in {"who", "person", "track"}):
         boost += 0.5
-    if document.get("type") == "window" and any(token in question_tokens for token in {"when", "time", "timestamp"}):
+    if document.get("type") in {"window", "window_summary"} and any(
+        token in question_tokens for token in {"when", "time", "timestamp", "doing", "happening", "action"}
+    ):
         boost += 0.5
+    if document.get("type") == "window_summary":
+        boost += 0.35
     if document.get("type") == "interval":
         boost += 0.25
 
@@ -167,7 +171,7 @@ def _track_refs_for_ids(track_ids, track_payload, alias_map):
     refs = []
     for track_id in track_ids or []:
         tid = int(track_id)
-        refs.append(_track_ref(tid, track_payload.get(tid, {}), alias_map))
+        refs.append(_track_ref(tid, track_payload.get(tid) or track_payload.get(str(tid), {}), alias_map))
     return refs
 
 
@@ -328,10 +332,38 @@ def _format_track_payload(track_id, payload, alias_map):
 
 
 class EventRAG:
-    def build_documents(self, event_log, track_payload, interval_summaries, source_meta=None):
+    def build_documents(self, event_log, track_payload, interval_summaries, window_summaries=None, source_meta=None):
         documents = []
         prefix = _prefix_text(source_meta)
         alias_map = _build_alias_map(track_payload)
+        for window_summary in window_summaries or []:
+            active_track_refs = window_summary.get("active_track_refs") or _track_refs_for_ids(
+                window_summary.get("active_tracks", []),
+                track_payload,
+                alias_map,
+            )
+            summary = window_summary.get("summary") or window_summary.get("structured_summary") or ""
+            documents.append(
+                {
+                    "type": "window_summary",
+                    "camera_id": None if not source_meta else source_meta.get("camera_id"),
+                    "run_id": None if not source_meta else source_meta.get("run_id"),
+                    "start": window_summary["start"],
+                    "end": window_summary["end"],
+                    "text": (
+                        prefix +
+                        "5-second window summary {start} to {end}. active people {tracks}. "
+                        "event count {event_count}. summary {summary}".format(
+                            start=window_summary["start"],
+                            end=window_summary["end"],
+                            tracks=", ".join(active_track_refs) or "none",
+                            event_count=window_summary.get("event_count", 0),
+                            summary=summary,
+                        )
+                    ),
+                }
+            )
+
         for interval in interval_summaries:
             active_track_refs = interval.get("active_track_refs") or _track_refs_for_ids(
                 interval.get("active_tracks", []),

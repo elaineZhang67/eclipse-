@@ -132,6 +132,18 @@ def parse_args():
     )
     p.add_argument("--event_window_sec", type=float, default=5.0, help="event-log window size in seconds")
     p.add_argument("--long_summary_sec", type=float, default=60.0, help="longer summary chunk size in seconds")
+    p.add_argument(
+        "--no_window_summaries",
+        action="store_false",
+        dest="summarize_event_windows",
+        help="disable structured 5-second window summaries",
+    )
+    p.set_defaults(summarize_event_windows=True)
+    p.add_argument(
+        "--llm_window_summaries",
+        action="store_true",
+        help="also run the selected summarizer on every 5-second window; this is slower and uses more GPU memory",
+    )
     p.add_argument("--interaction_combine_iou", type=float, default=0.05, help="IOU threshold to merge two boxes into one interaction region")
     p.add_argument("--interaction_combine_dist", type=float, default=1.2, help="normalized center-distance threshold for a merged interaction region")
     p.add_argument("--interaction_nearby_dist", type=float, default=2.5, help="normalized center-distance threshold for nearby but separate interactions")
@@ -204,6 +216,11 @@ if __name__ == "__main__":
         print("\nInterval summaries:")
         for interval in results["interval_summaries"]:
             print(f"  - {interval}")
+
+    if results.get("window_summaries"):
+        print("\n5-second window summaries:")
+        for window in results["window_summaries"]:
+            print(f"  - {window}")
 
     if "scene_summary" in results:
         print("\nScene summary:")

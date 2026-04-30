@@ -87,6 +87,7 @@ class SurveillanceChatSession:
                     bundle["results"].get("event_log", []),
                     bundle["results"].get("tracks", {}),
                     bundle["results"].get("interval_summaries", []),
+                    bundle["results"].get("window_summaries", []),
                     source_meta={
                         "run_id": bundle.get("run_id"),
                         "camera_id": bundle.get("camera_id"),

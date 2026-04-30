@@ -134,6 +134,208 @@ def _merge_track_memory_metadata(per_track_metadata, memory_metadata):
     return per_track_metadata
 
 
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _overlaps(start_a, end_a, start_b, end_b):
+    return max(_safe_float(start_a), _safe_float(start_b)) < min(
+        _safe_float(end_a),
+        _safe_float(end_b),
+    )
+
+
+def _format_track_ref(track_id, metadata):
+    return metadata.get("track_ref") or "{name} (track {track_id})".format(
+        name=metadata.get("display_name") or "Person",
+        track_id=int(track_id),
+    )
+
+
+def _profile_hint(profile):
+    if not isinstance(profile, dict):
+        return ""
+
+    parts = []
+    appearance = profile.get("appearance") or {}
+    if appearance.get("top_color"):
+        parts.append("top color {value}".format(value=appearance["top_color"]))
+    if appearance.get("bottom_color"):
+        parts.append("bottom color {value}".format(value=appearance["bottom_color"]))
+    if appearance.get("outerwear"):
+        parts.append("outerwear {value}".format(value=appearance["outerwear"]))
+    carried = [
+        item.get("label")
+        for item in profile.get("carried_objects", [])
+        if isinstance(item, dict) and item.get("label")
+    ]
+    if carried:
+        parts.append("carried " + ", ".join(carried))
+    if profile.get("behavior_overview"):
+        parts.append("profile {value}".format(value=profile["behavior_overview"]))
+    return "; ".join(parts)
+
+
+def _window_track_view(track_id, payload, window_start, window_end):
+    metadata = payload.get("metadata", {})
+    segments = [
+        segment
+        for segment in payload.get("segments", [])
+        if _overlaps(segment.get("start"), segment.get("end"), window_start, window_end)
+    ]
+    object_tracks = [
+        item
+        for item in metadata.get("object_tracks", [])
+        if item.get("first_seen") is None
+        or item.get("last_seen") is None
+        or _overlaps(item.get("first_seen"), item.get("last_seen"), window_start, window_end)
+    ]
+
+    return {
+        "track_id": int(track_id),
+        "display_name": metadata.get("display_name"),
+        "track_ref": _format_track_ref(track_id, metadata),
+        "first_seen": metadata.get("first_seen"),
+        "last_seen": metadata.get("last_seen"),
+        "objects": list(metadata.get("objects", [])),
+        "object_tracks": object_tracks,
+        "segments": segments,
+        "profile": payload.get("profile"),
+        "summary": payload.get("summary"),
+    }
+
+
+def _object_labels_from_event(event):
+    labels = []
+    for item in event.get("objects", []):
+        if isinstance(item, dict):
+            label = item.get("label")
+            object_track_id = item.get("object_track_id")
+            confidence = item.get("confidence")
+            text = str(label) if label else None
+            if text and object_track_id is not None:
+                text = "{label} object track {object_track_id}".format(
+                    label=text,
+                    object_track_id=object_track_id,
+                )
+            if text and confidence is not None:
+                text = "{text} confidence {confidence}".format(text=text, confidence=confidence)
+            if text:
+                labels.append(text)
+        elif item:
+            labels.append(str(item))
+    return labels
+
+
+def _format_window_event(event):
+    event_type = event.get("type")
+    if event_type == "enter":
+        return "{track_ref} entered".format(
+            track_ref=event.get("track_ref") or "track {track_id}".format(track_id=event.get("track_id")),
+        )
+    if event_type == "last_seen":
+        return "{track_ref} last seen at {time}s".format(
+            track_ref=event.get("track_ref") or "track {track_id}".format(track_id=event.get("track_id")),
+            time=event.get("time"),
+        )
+    if event_type in {"attributed_objects", "near_objects"}:
+        objects = _object_labels_from_event(event)
+        if not objects:
+            return ""
+        verb = "associated with" if event_type == "attributed_objects" else "near"
+        return "{track_ref} {verb} {objects}".format(
+            track_ref=event.get("track_ref") or "track {track_id}".format(track_id=event.get("track_id")),
+            verb=verb,
+            objects=", ".join(objects),
+        )
+    if event_type == "interaction":
+        refs = event.get("track_refs") or [
+            "track {track_id}".format(track_id=track_id)
+            for track_id in event.get("track_ids", [])
+        ]
+        if refs:
+            return "{kind} interaction between {refs}".format(
+                kind=event.get("kind", "unknown"),
+                refs=" and ".join(refs),
+            )
+    return str(event)
+
+
+def _format_window_track(track):
+    ref = track.get("track_ref") or "track {track_id}".format(track_id=track.get("track_id"))
+    pieces = [ref]
+    hint = _profile_hint(track.get("profile"))
+    if hint:
+        pieces.append(hint)
+
+    segments = []
+    for segment in track.get("segments", []):
+        segments.append(
+            "{action} {start}-{end}s".format(
+                action=segment.get("action", "unknown action"),
+                start=segment.get("start"),
+                end=segment.get("end"),
+            )
+        )
+    pieces.append("actions " + (", ".join(segments) if segments else "no classified action in this window"))
+
+    if track.get("objects"):
+        pieces.append("objects " + ", ".join(track.get("objects", [])))
+    return "; ".join(pieces)
+
+
+def _build_window_packets(event_log, track_payload):
+    packets = []
+    for window in event_log:
+        start = window["start"]
+        end = window["end"]
+        tracks = {}
+        for track_id in window.get("active_tracks", []):
+            payload = track_payload.get(track_id) or track_payload.get(str(track_id), {})
+            tracks[int(track_id)] = _window_track_view(track_id, payload, start, end)
+
+        packets.append(
+            {
+                "start": start,
+                "end": end,
+                "active_tracks": list(window.get("active_tracks", [])),
+                "active_track_refs": list(window.get("active_track_refs", [])),
+                "event_count": len(window.get("events", [])),
+                "events": list(window.get("events", [])),
+                "tracks": tracks,
+            }
+        )
+    return packets
+
+
+def _structured_window_summary(packet):
+    start = packet.get("start")
+    end = packet.get("end")
+    active_track_refs = packet.get("active_track_refs", [])
+    tracks = [_format_window_track(track) for track in packet.get("tracks", {}).values()]
+    event_lines = [
+        line
+        for line in (_format_window_event(event) for event in packet.get("events", []))
+        if line
+    ]
+
+    summary_parts = [
+        "{start}-{end}s".format(start=start, end=end),
+        "active people {tracks}".format(tracks=", ".join(active_track_refs) or "none"),
+    ]
+    if tracks:
+        visible_tracks = tracks[:12]
+        if len(tracks) > len(visible_tracks):
+            visible_tracks.append("{count} additional active people omitted".format(count=len(tracks) - len(visible_tracks)))
+        summary_parts.append("per-person evidence: " + " | ".join(visible_tracks))
+    if event_lines:
+        summary_parts.append("events: " + "; ".join(event_lines))
+    return ". ".join(summary_parts)
+
+
 def run_pipeline(args):
     track_labels = _parse_csv_arg(getattr(args, "track_labels", None), default=["person"])
     explicit_object_labels = _parse_csv_arg(
@@ -424,6 +626,46 @@ def run_pipeline(args):
         track_progress.set_postfix(segments=len(segments), objects=len(metadata.get("objects", [])))
     track_progress.close()
 
+    window_packets = _build_window_packets(event_log, all_track_payload)
+    window_outputs = []
+    if bool(getattr(args, "summarize_event_windows", True)):
+        window_progress = _build_tqdm(
+            window_packets,
+            desc="Windows",
+            unit="window",
+            disable=disable_progress,
+        )
+        for window_packet in window_progress:
+            out = {
+                "start": window_packet["start"],
+                "end": window_packet["end"],
+                "active_tracks": window_packet["active_tracks"],
+                "active_track_refs": window_packet["active_track_refs"],
+                "event_count": window_packet["event_count"],
+                "structured_summary": _structured_window_summary(window_packet),
+            }
+            out["summary"] = out["structured_summary"]
+            if bool(getattr(args, "llm_window_summaries", False)) and summarizer is not None:
+                scene_images = (
+                    visual_evidence.get_scene_images(
+                        start_sec=window_packet["start"],
+                        end_sec=window_packet["end"],
+                    )
+                    if visual_evidence is not None
+                    else None
+                )
+                out["llm_summary"] = summarizer.summarize_window(
+                    window_packet,
+                    scene_images=scene_images,
+                )
+                out["summary"] = out["llm_summary"]
+            window_outputs.append(out)
+            window_progress.set_postfix(
+                tracks=len(window_packet["active_tracks"]),
+                events=window_packet["event_count"],
+            )
+        window_progress.close()
+
     interval_packets = interval_builder.build(event_log, all_track_payload)
     interval_outputs = []
     interval_progress = _build_tqdm(
@@ -468,6 +710,8 @@ def run_pipeline(args):
             "stride": stride,
             "event_window_sec": args.event_window_sec,
             "long_summary_sec": getattr(args, "long_summary_sec", 60.0),
+            "summarize_event_windows": bool(getattr(args, "summarize_event_windows", True)),
+            "llm_window_summaries": bool(getattr(args, "llm_window_summaries", False)),
             "tracker": args.tracker,
             "track_backend": track_backend,
             "person_tracker_model": getattr(args, "sam3_model", None) if track_backend == "sam3" else args.yolo,
@@ -500,11 +744,13 @@ def run_pipeline(args):
             "tracks": len(tracked_ids),
             "identity_tracks": 0 if track_memory_bank is None else len(track_memory_bank.export_bank()),
             "event_windows": len(event_log),
+            "window_summaries": len(window_outputs),
             "intervals": len(interval_outputs),
             "action_clips": int(clip_count),
         },
         "tracks": track_outputs,
         "event_log": event_log,
+        "window_summaries": window_outputs,
         "interval_summaries": interval_outputs,
         "debug_evidence": debug_evidence_output,
         "track_memory_bank": [] if track_memory_bank is None else track_memory_bank.export_bank(),
@@ -518,7 +764,7 @@ def run_pipeline(args):
         )
 
     if getattr(args, "question", None):
-        documents = rag_builder.build_documents(event_log, all_track_payload, interval_outputs)
+        documents = rag_builder.build_documents(event_log, all_track_payload, interval_outputs, window_outputs)
         retrieved = rag_builder.retrieve(
             getattr(args, "question", ""),
             documents,
