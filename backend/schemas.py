@@ -10,7 +10,7 @@ DEFAULT_CHAT_ANSWER_MODEL = "Qwen/Qwen2.5-14B-Instruct"
 class PipelineOptions(BaseModel):
     yolo: str = "yolov8n.pt"
     tracker: str = "botsort.yaml"
-    track_backend: str = "sam3"
+    track_backend: str = "yolo"
     object_backend: str = "sam3"
     sam2_model: str = "facebook/sam2.1-hiera-large"
     sam2_mask_threshold: float = 0.5
@@ -20,8 +20,8 @@ class PipelineOptions(BaseModel):
     sam3_mask_threshold: float = 0.5
     sam3_track_iou: float = 0.3
     sam3_track_ttl: int = 12
-    device: str = "auto"
-    fps: float = 12.0
+    device: str = "cuda"
+    fps: float = 4.0
     clip_len: int = 16
     stride: int = 8
     clip_sec: float = 2.0
@@ -87,7 +87,7 @@ class AskRequest(BaseModel):
     history_turns: int = 8
     answer_backend: str = "text"
     answer_model: Optional[str] = DEFAULT_CHAT_ANSWER_MODEL
-    device: str = "auto"
+    device: str = "cuda"
 
 
 class AskResponse(BaseModel):
@@ -124,4 +124,4 @@ class ChatAskRequest(BaseModel):
     history_turns: int = 8
     answer_backend: str = "text"
     answer_model: Optional[str] = DEFAULT_CHAT_ANSWER_MODEL
-    device: str = "auto"
+    device: str = "cuda"

@@ -11,7 +11,7 @@ import streamlit as st
 DEFAULT_API_BASE = os.environ.get("SURVEILLANCE_API_BASE", "http://127.0.0.1:8000")
 DEFAULT_PIPELINE_LLM_MODEL = "google/gemma-4-E4B-it"
 DEFAULT_CHAT_ANSWER_MODEL = "Qwen/Qwen2.5-14B-Instruct"
-DEFAULT_TRACK_BACKEND = "sam3"
+DEFAULT_TRACK_BACKEND = "yolo"
 DEFAULT_OBJECT_BACKEND = "sam3"
 VIDEO_TYPES = ["mp4", "mov", "avi", "mkv", "webm"]
 PROCESSING_STATUSES = {"uploaded", "queued", "running"}
@@ -1412,7 +1412,7 @@ def main():
 
     sidebar_defaults = {
         "api_base": DEFAULT_API_BASE,
-        "pipeline_device": "auto",
+        "pipeline_device": "cuda",
         "track_backend": DEFAULT_TRACK_BACKEND,
         "object_backend": DEFAULT_OBJECT_BACKEND,
         "object_labels": "",
@@ -1420,7 +1420,7 @@ def main():
         "llm_model": DEFAULT_PIPELINE_LLM_MODEL,
         "answer_backend": "text",
         "answer_model": DEFAULT_CHAT_ANSWER_MODEL,
-        "qa_device": "auto",
+        "qa_device": "cuda",
         "top_k": 4,
         "history_turns": 8,
     }

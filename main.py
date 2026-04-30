@@ -15,7 +15,7 @@ def parse_args():
     p.add_argument(
         "--track_backend",
         type=str,
-        default="sam3",
+        default="yolo",
         choices=["yolo", "sam3"],
         help="person tracking backend: sam3 uses SAM3 text-prompt person segmentation, yolo uses YOLO + tracker",
     )
@@ -104,11 +104,11 @@ def parse_args():
     p.add_argument(
         "--device",
         type=str,
-        default="auto",
+        default="cuda",
         choices=["auto", "cpu", "cuda", "mps"],
         help="execution device for torch models",
     )
-    p.add_argument("--fps", type=float, default=12.0, help="sampling FPS (approx)")
+    p.add_argument("--fps", type=float, default=4.0, help="sampling FPS (approx)")
     p.add_argument("--clip_len", type=int, default=16, help="frames per clip")
     p.add_argument("--stride", type=int, default=8, help="slide stride in frames")
     p.add_argument("--clip_sec", type=float, default=2.0, help="seconds per action clip; overrides clip_len")
