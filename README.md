@@ -31,45 +31,6 @@ Default demo configuration:
 - Long interval summaries: disabled by default
 - QA backend: VLM answer generation with retrieved keyframes
 
-```mermaid
-flowchart LR
-    A[Uploaded Video] --> B[Backend Video Registry]
-    B --> C[Chat Session + Processing Job]
-    C --> D[Background Worker]
-
-    D --> E[Frame Sampler: 4 FPS]
-    E --> F[Person Tracking: YOLO + BoT-SORT]
-    E --> G[Object Backend: SAM3]
-    F --> H[Appearance Memory Bank]
-    G --> I[Object Tracks + Associations]
-    H --> J[Temporal Event Builder]
-    I --> J
-
-    J --> K[5s Event Windows]
-    J --> L[Per-Track Metadata]
-    E --> M[Visual Evidence Collector]
-
-    M --> N[Track Crops]
-    M --> O[Window Keyframes]
-    M --> P[Full-Video Sampled Frames]
-
-    N --> Q[Gemma4 Track Profile + Track Summary]
-    O --> R[Gemma4 5s Window Captions]
-    P --> S[Gemma4 Full-Video Scene Summary]
-
-    K --> T[SQLite Run Memory]
-    L --> T
-    Q --> T
-    R --> T
-    S --> T
-
-    U[User Question] --> V[Load Completed Session]
-    V --> W[Build RAG Docs from SQLite]
-    W --> X[Retrieve Relevant Windows + Stitched Track Timelines]
-    X --> Y[Sample QA Keyframes]
-    Y --> Z[Gemma4 Grounded Answer]
-```
-
 ## Repository Structure
 
 ```text
