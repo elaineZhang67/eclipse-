@@ -31,6 +31,8 @@ Default demo configuration:
 - Long interval summaries: disabled by default
 - QA backend: VLM answer generation with retrieved keyframes
 
+For a presentation-friendly architecture page, open [docs/pipeline_overview.html](docs/pipeline_overview.html).
+
 ## Repository Structure
 
 ```text

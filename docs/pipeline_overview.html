@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Eclipse Video-to-Chat QA Pipeline</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,650;9..144,760&family=Manrope:wght@400;560;700;820&display=swap");
+
+    :root {
+      --paper: #f6f1e8;
+      --paper-2: #fffaf1;
+      --ink: #17201b;
+      --muted: #657069;
+      --line: rgba(28, 43, 34, 0.15);
+      --red: #c41230;
+      --red-dark: #8f1028;
+      --blue: #dfeefe;
+      --blue-line: #4077aa;
+      --green: #e2f1dc;
+      --green-line: #5a8a54;
+      --amber: #fff0cf;
+      --amber-line: #d08a18;
+      --purple: #eee2f7;
+      --purple-line: #8757a1;
+      --shadow: 0 24px 70px rgba(26, 36, 31, 0.13);
+      --radius: 28px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background:
+        radial-gradient(circle at 10% 12%, rgba(196, 18, 48, 0.10), transparent 24rem),
+        radial-gradient(circle at 92% 10%, rgba(64, 119, 170, 0.16), transparent 28rem),
+        linear-gradient(135deg, #fbf7ef, var(--paper));
+      color: var(--ink);
+      font-family: "Manrope", "Avenir Next", sans-serif;
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    .page {
+      margin: 0 auto;
+      max-width: 1500px;
+      padding: 42px;
+    }
+
+    .hero {
+      align-items: stretch;
+      display: grid;
+      gap: 24px;
+      grid-template-columns: 1.25fr 0.75fr;
+      margin-bottom: 26px;
+    }
+
+    .hero-main,
+    .side-panel,
+    .pipeline,
+    .ablation-panel {
+      background: rgba(255, 250, 241, 0.78);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero-main {
+      padding: 40px;
+    }
+
+    .kicker {
+      color: var(--red);
+      font-size: 0.78rem;
+      font-weight: 820;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-family: "Fraunces", Georgia, serif;
+      font-size: clamp(3rem, 7vw, 6.4rem);
+      letter-spacing: -0.07em;
+      line-height: 0.9;
+      margin: 14px 0 22px;
+      max-width: 980px;
+    }
+
+    .hero-copy {
+      color: var(--muted);
+      font-size: 1.06rem;
+      line-height: 1.65;
+      max-width: 760px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .pill {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 760;
+      padding: 9px 14px;
+    }
+
+    .side-panel {
+      background:
+        linear-gradient(150deg, rgba(19, 29, 24, 0.96), rgba(29, 72, 53, 0.94)),
+        #16251f;
+      color: #fff8eb;
+      padding: 32px;
+    }
+
+    .side-title {
+      font-size: 0.82rem;
+      font-weight: 820;
+      letter-spacing: 0.12em;
+      opacity: 0.76;
+      text-transform: uppercase;
+    }
+
+    .side-panel strong {
+      display: block;
+      font-size: 2.2rem;
+      letter-spacing: -0.05em;
+      line-height: 1.02;
+      margin: 18px 0;
+    }
+
+    .side-panel p {
+      color: #c9d5cd;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .pipeline {
+      padding: 28px;
+    }
+
+    .lane {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 150px repeat(5, minmax(150px, 1fr));
+      margin-bottom: 18px;
+      min-width: 1120px;
+    }
+
+    .lane:last-child {
+      margin-bottom: 0;
+    }
+
+    .lane-label {
+      align-items: center;
+      border-radius: 20px;
+      color: var(--red);
+      display: flex;
+      font-size: 0.86rem;
+      font-weight: 820;
+      letter-spacing: 0.1em;
+      padding-left: 8px;
+      text-transform: uppercase;
+    }
+
+    .card {
+      border: 1.6px solid;
+      border-radius: 18px;
+      min-height: 112px;
+      padding: 18px;
+      position: relative;
+    }
+
+    .card::after {
+      border-right: 2px solid rgba(24, 32, 27, 0.35);
+      border-top: 2px solid rgba(24, 32, 27, 0.35);
+      content: "";
+      height: 10px;
+      position: absolute;
+      right: -15px;
+      top: 50%;
+      transform: translateY(-50%) rotate(45deg);
+      width: 10px;
+      z-index: 2;
+    }
+
+    .card.no-arrow::after,
+    .lane .card:last-child::after {
+      display: none;
+    }
+
+    .blue {
+      background: var(--blue);
+      border-color: var(--blue-line);
+    }
+
+    .green {
+      background: var(--green);
+      border-color: var(--green-line);
+    }
+
+    .amber {
+      background: var(--amber);
+      border-color: var(--amber-line);
+    }
+
+    .purple {
+      background: var(--purple);
+      border-color: var(--purple-line);
+    }
+
+    .card-title {
+      font-size: 1.02rem;
+      font-weight: 820;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      margin-bottom: 9px;
+    }
+
+    .card-copy {
+      color: #354139;
+      font-size: 0.82rem;
+      line-height: 1.38;
+    }
+
+    .memory-bar {
+      align-items: center;
+      background: linear-gradient(90deg, var(--red), var(--red-dark));
+      border-radius: 16px;
+      color: white;
+      display: flex;
+      font-size: 1rem;
+      font-weight: 820;
+      grid-column: 2 / -1;
+      justify-content: center;
+      letter-spacing: 0.02em;
+      min-height: 48px;
+      text-align: center;
+    }
+
+    .pipeline-wrap {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .ablation-panel {
+      margin-top: 24px;
+      padding: 26px 28px;
+    }
+
+    .ablation-title {
+      align-items: center;
+      display: flex;
+      font-size: 1.15rem;
+      font-weight: 820;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .ablation-title span {
+      background: rgba(196, 18, 48, 0.12);
+      border-radius: 999px;
+      color: var(--red);
+      font-size: 0.74rem;
+      letter-spacing: 0.1em;
+      padding: 7px 10px;
+      text-transform: uppercase;
+    }
+
+    .ablation-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(6, minmax(130px, 1fr));
+    }
+
+    .ablation {
+      background: #fff;
+      border: 1px dashed rgba(196, 18, 48, 0.45);
+      border-radius: 16px;
+      color: #4d3b32;
+      font-size: 0.8rem;
+      line-height: 1.35;
+      padding: 14px;
+    }
+
+    .ablation b {
+      color: var(--red-dark);
+      display: block;
+      font-size: 0.86rem;
+      margin-bottom: 4px;
+    }
+
+    .footer-note {
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.5;
+      margin-top: 20px;
+      text-align: center;
+    }
+
+    @media (max-width: 950px) {
+      .page {
+        padding: 22px;
+      }
+
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .ablation-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media print {
+      body {
+        background: white;
+      }
+
+      .page {
+        max-width: none;
+        padding: 20px;
+      }
+
+      .hero-main,
+      .side-panel,
+      .pipeline,
+      .ablation-panel {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-main">
+        <div class="kicker">Final pipeline architecture</div>
+        <h1>Video-to-Chat Surveillance QA</h1>
+        <p class="hero-copy">
+          A pipeline-first system: the backend first turns raw video into structured, time-stamped memory,
+          then user questions retrieve relevant evidence and keyframes before Gemma4 generates a grounded answer.
+        </p>
+        <div class="pill-row" aria-label="Final configuration">
+          <div class="pill">YOLO + BoT-SORT for people</div>
+          <div class="pill">SAM3 for objects</div>
+          <div class="pill">5s event windows</div>
+          <div class="pill">Gemma4 VLM memory</div>
+          <div class="pill">Interval summaries disabled</div>
+        </div>
+      </div>
+
+      <aside class="side-panel">
+        <div class="side-title">Core idea</div>
+        <strong>Process first, then chat.</strong>
+        <p>
+          Gemma4 is not asked to understand the entire raw video alone. It answers from retrieved memory:
+          tracks, object associations, window captions, stitched timelines, and sampled keyframes.
+        </p>
+      </aside>
+    </section>
+
+    <section class="pipeline" aria-label="Pipeline diagram">
+      <div class="pipeline-wrap">
+        <div class="lane">
+          <div class="lane-label">Ingest</div>
+          <div class="card blue">
+            <div class="card-title">Uploaded Video</div>
+            <div class="card-copy">Stored video file from the Streamlit frontend.</div>
+          </div>
+          <div class="card blue">
+            <div class="card-title">Backend Registry</div>
+            <div class="card-copy">Assigns video id, camera id, path, and metadata.</div>
+          </div>
+          <div class="card blue">
+            <div class="card-title">Chat Session + Job</div>
+            <div class="card-copy">Creates session id, job id, expected run id, and processing status.</div>
+          </div>
+          <div class="card blue no-arrow">
+            <div class="card-title">Background Worker</div>
+            <div class="card-copy">Runs the full batch pipeline before chat unlocks.</div>
+          </div>
+          <div></div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label">Process</div>
+          <div class="card blue">
+            <div class="card-title">Frame Sampler</div>
+            <div class="card-copy">OpenCV samples frames at 4 FPS and preserves timestamps.</div>
+          </div>
+          <div class="card blue">
+            <div class="card-title">Person Tracking</div>
+            <div class="card-copy">YOLO + BoT-SORT detects people and assigns internal tracker IDs.</div>
+          </div>
+          <div class="card green">
+            <div class="card-title">Appearance Memory</div>
+            <div class="card-copy">Reassociates fragmented person tracks into stable internal identities.</div>
+          </div>
+          <div class="card blue">
+            <div class="card-title">Object Backend</div>
+            <div class="card-copy">SAM3 detects and segments configured object classes.</div>
+          </div>
+          <div class="card blue no-arrow">
+            <div class="card-title">Associations</div>
+            <div class="card-copy">Builds person-object proximity and person-person interaction evidence.</div>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label">Memory</div>
+          <div class="card green">
+            <div class="card-title">5s Event Windows</div>
+            <div class="card-copy">Stores active tracks, timestamps, events, objects, and interactions.</div>
+          </div>
+          <div class="card amber">
+            <div class="card-title">Visual Evidence</div>
+            <div class="card-copy">Collects track crops, window keyframes, and sampled scene frames.</div>
+          </div>
+          <div class="card amber">
+            <div class="card-title">Gemma4 Track Profiles</div>
+            <div class="card-copy">Describes appearance and behavior for each internal person track.</div>
+          </div>
+          <div class="card amber">
+            <div class="card-title">Gemma4 5s Captions</div>
+            <div class="card-copy">Captioned window-level activity from keyframes and structured events.</div>
+          </div>
+          <div class="card amber no-arrow">
+            <div class="card-title">Full Scene Summary</div>
+            <div class="card-copy">Gemma4 summarizes the whole video from sampled frames.</div>
+          </div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label">Store</div>
+          <div class="memory-bar">SQLite Run Memory: videos, jobs, tracks, events, summaries, profiles, chat sessions, and messages</div>
+        </div>
+
+        <div class="lane">
+          <div class="lane-label">Query</div>
+          <div class="card purple">
+            <div class="card-title">User Question</div>
+            <div class="card-copy">Chat unlocks only after backend processing is complete.</div>
+          </div>
+          <div class="card purple">
+            <div class="card-title">RAG Retrieval</div>
+            <div class="card-copy">Builds time-stamped documents from SQLite memory on demand.</div>
+          </div>
+          <div class="card purple">
+            <div class="card-title">Stitched Timeline</div>
+            <div class="card-copy">Connects adjacent windows for the same internal person identity.</div>
+          </div>
+          <div class="card purple">
+            <div class="card-title">Sample Keyframes</div>
+            <div class="card-copy">Reads visual evidence from the retrieved time windows.</div>
+          </div>
+          <div class="card purple no-arrow">
+            <div class="card-title">Gemma4 Final Answer</div>
+            <div class="card-copy">Concise grounded answer without exposing internal track IDs.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="ablation-panel">
+      <div class="ablation-title">
+        <span>Ablations</span>
+        Tested, then removed or demoted from the final path
+      </div>
+      <div class="ablation-grid">
+        <div class="ablation"><b>Direct Gemma4</b>Good scene summary, weak evidence structure.</div>
+        <div class="ablation"><b>VideoMAE</b>Rigid action labels polluted QA.</div>
+        <div class="ablation"><b>60s intervals</b>Too coarse for person-level questions.</div>
+        <div class="ablation"><b>Qwen3-VL</b>Earlier baseline, replaced by Gemma4 final.</div>
+        <div class="ablation"><b>SAM2</b>Useful ablation, not final object backend.</div>
+        <div class="ablation"><b>Text-only QA</b>Faster but misses visual detail.</div>
+      </div>
+      <div class="footer-note">
+        Current system is pipeline-first, not real-time. Future work: commit completed 5-second windows incrementally for near-real-time QA.
+      </div>
+    </section>
+  </main>
+</body>
+</html>
